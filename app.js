@@ -524,6 +524,7 @@
   // 🆕 companyNameTh/En/Logo — เว้นว่าง = ใช้ค่า default ของระบบ (ดู DEFAULT_COMPANY_* ด้านล่าง) เพื่อไม่ให้ deployment เดิม (Summit) พังตอนยังไม่ได้ตั้งค่า
   let appSettings = { docNo: 'DDM4-2-002', formRevLevel: 'Rev.01', revLevel: 'Rev.00', revDate: '', issueDate: '', companyNameTh: '', companyNameEn: '', companyLogo: '', companies: [] };
   let selection = { deptId: null, lineId: null, jigId: null };
+  let _submitInProgress = false; // 🆕 กันกดปุ่ม "บันทึกผลการตรวจ" ซ้ำรัวๆ ระหว่างที่ยังรอ GPS/ส่งขึ้นระบบอยู่ — ต้นเหตุที่ทำให้ประวัติซ้ำกัน
   let jigSearchTerm = ''; // filters the Level-3 JIG chip list
   let checkState = [];  // current inspection items
   let cpEditJigId = null; // JIG ที่กำลังแก้ไขจุดตรวจ/รูปพื้นหลังใน Admin Panel
@@ -1743,24 +1744,28 @@
     }
   }
 
-  // 🆕 [แก้บั๊ก] กันกดปุ่ม "บันทึกผลการตรวจ" ซ้ำในเวลาใกล้เคียงกัน — จุดที่มักเกิดจริงคือ
-  // ระหว่างรอ GPS (อาจใช้เวลาหลายวินาที) ปุ่มยังกดซ้ำได้ ทำให้ประวัติซ้ำ 2 รายการ
-  let isSubmittingReport = false;
+  // 🆕 [แก้ข้อ 1] แจ้งเตือน Telegram ทุกครั้งที่มีการลบประวัติการตรวจ — เพื่อความโปร่งใส/ตรวจสอบย้อนหลังได้
+  // ว่าใครลบ ลบรายการไหน เมื่อไหร่ (ไม่งั้นถ้ามีคนลบประวัติโดยไม่ตั้งใจหรือจงใจ จะไม่มีใครรู้เลย)
+  async function notifyHistoryDeleted(record) {
+    if (!record) return;
+    const adminUser = localStorage.getItem('jig_admin_user') || 'ไม่ทราบผู้ใช้';
+    const msg = `
+🗑 *แจ้งเตือน: มีการลบประวัติการตรวจสอบ*
+━━━━━━━━━━━━━━━━━━━━━━━━━
+*${escHtml(record.jigName || '-')}*
+${escHtml(record.jigId || '')}
 
-  async function submitReport() {
-    if (isSubmittingReport) return; // กันกดซ้ำระหว่างที่ยังทำงานค้างอยู่ (เช่น รอ GPS)
-    isSubmittingReport = true;
-    const btn = $('btn-submit');
-    if (btn) btn.disabled = true; // ปิดปุ่มจริงๆ ด้วย กันเผื่อกด/แตะซ้ำเร็วมากจนทัน event เดิมยังไม่ทันเซ็ต flag
-    try {
-      await submitReportInner();
-    } finally {
-      isSubmittingReport = false; // ปลดล็อกเสมอ ไม่ว่าจะสำเร็จ/error/validation ไม่ผ่าน
-      if (btn) btn.disabled = false;
-    }
+📅 วันที่ตรวจ (รายการที่ถูกลบ): ${record.date || '-'}
+👤 ผู้ตรวจเดิม: ${escHtml(record.inspector || '-')}
+🗑 ลบโดย (Admin): ${escHtml(adminUser)}
+🕐 เมื่อ: ${new Date().toLocaleString('th-TH')}
+━━━━━━━━━━━━━━━━━━━━━━━━━
+`;
+    await sendTelegramMessage(msg);
   }
 
-  async function submitReportInner() {
+  async function submitReport() {
+    if (_submitInProgress) return; // 🆕 กันกดซ้ำระหว่างที่ยังทำงานอยู่ (รอ GPS/บันทึก/ส่ง Telegram) — ต้นเหตุประวัติซ้ำ
     if (!selection.jigId) { toast('กรุณาเลือก JIG ก่อนบันทึก', 'ng'); return; }
     if (!$('inp-inspector').value.trim()) { toast('กรุณาระบุชื่อผู้ตรวจสอบ', 'ng'); $('inp-inspector').focus(); return; }
     if (!$('inp-date').value) { toast('กรุณาเลือกวันที่', 'ng'); return; }
@@ -1768,6 +1773,12 @@
     const unchecked = checkState.filter(i => !i.status);
     if (unchecked.length) { toast(`ยังมี ${unchecked.length} รายการที่ยังไม่ตรวจ`, 'ng'); return; }
 
+    // 🆕 ผ่านทุกเงื่อนไขแล้ว เริ่มขั้นตอนที่ใช้เวลา (GPS/บันทึก/Telegram) — ล็อกปุ่มไว้กันกดซ้ำ จนกว่าจะจบไม่ว่าสำเร็จหรือพลาด (ดู finally ท้ายฟังก์ชัน)
+    _submitInProgress = true;
+    const submitBtn = $('btn-submit');
+    if (submitBtn) submitBtn.disabled = true;
+
+    try {
     // ─── ขอ GPS พอดีกดบันทึก (บังคับต้องได้) ─── 
     toast('🔄 กำลังเก็บค่า GPS... (ต้องได้พิกัดก่อนบันทึกได้)', 'ok');
     const gpsData = await getGPSCoordinates();
@@ -1884,6 +1895,11 @@ ${ngCount > 0 ? `❌ ไม่ผ่าน (NG): ${ngCount}` : ''}
         });
       }
 
+      // 🆕 [แก้ข้อ 3] เพิ่มหมายเหตุทั่วไปที่ผู้ตรวจกรอกไว้ท้ายฟอร์ม — เดิมบันทึกลง PDF อย่างเดียว ไม่เคยส่งเข้า Telegram เลย
+      if (record.notes && record.notes.trim()) {
+        telegramMsg += `\n📝 *หมายเหตุเพิ่มเติม:*\n_${escHtml(record.notes.trim())}_\n`;
+      }
+
       telegramMsg += `
 📍 GPS: ${gpsData.latitude.toFixed(6)}, ${gpsData.longitude.toFixed(6)}
 ━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1895,14 +1911,18 @@ ${ngCount > 0 ? `❌ ไม่ผ่าน (NG): ${ngCount}` : ''}
 
       await sendTelegramMessage(telegramMsg, approveUrl, '✅ เปิดเพื่อตรวจสอบ');
 
-      // 🆕 [แก้บั๊ก] กลับไปหน้า "เลือก Line การผลิต" อัตโนมัติหลังบันทึกสำเร็จ
-      // ป้องกันปัญหาคนหน้างานกดปุ่ม "บันทึกผลการตรวจ" ซ้ำในเวลาใกล้กัน (ประวัติซ้ำ)
-      // เพราะฟอร์มเดิมจะถูกซ่อนไปทันที ต้องเลือก Line + JIG ใหม่ก่อนถึงจะกดบันทึกได้อีกครั้ง
+      // 🆕 กลับไปหน้า "เลือก Line การผลิต" ทันทีหลังบันทึกสำเร็จ — ตามที่พี่บีขอ
+      // กันปัญหาคนหน้างานกดบันทึกซ้ำที่ฟอร์มเดิม (ทำให้ประวัติซ้ำ) เพราะฟอร์มนี้จะถูกซ่อนไปเลย
+      // ต้องเลือก JIG ใหม่ทั้งกระบวนการถึงจะกดบันทึกได้อีกครั้ง
       selection.lineId = null;
-      selection.jigId = null;
+      selection.jigId  = null;
       hideInspectionCards();
       renderFilter();
-      $('filter-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    } finally {
+      // 🆕 คืนสถานะปุ่มเสมอไม่ว่าจะสำเร็จ/ไม่สำเร็จ/ error กลางทาง — กันปุ่มค้าง disabled ถ้าเกิด error ที่ไม่คาดคิด
+      _submitInProgress = false;
+      if (submitBtn) submitBtn.disabled = false;
     }
   }
 
@@ -3703,7 +3723,9 @@ ${ngCount > 0 ? `❌ ไม่ผ่าน (NG): ${ngCount}` : ''}
     if (!(await showConfirmModal(`ลบ ${ids.length} รายการที่เลือกไว้? การลบนี้ย้อนกลับไม่ได้`, { confirmLabel: `ลบ ${ids.length} รายการ`, danger: true }))) return;
     let remaining = loadHistory();
     for (const id of ids) {
+      const deletedRecord = remaining.find(h => String(h.id) === id); // 🆕 เก็บไว้ก่อนลบ เพื่อเอาไปแจ้งเตือน
       await deleteHistoryFromSupabase(id);
+      notifyHistoryDeleted(deletedRecord); // 🆕 [แก้ข้อ 1] แจ้งเตือน Telegram ทีละรายการที่ถูกลบ
       remaining = remaining.filter(h => String(h.id) !== id);
       localStorage.setItem(SK.history, JSON.stringify(remaining));
     }
@@ -3852,9 +3874,12 @@ ${ngCount > 0 ? `❌ ไม่ผ่าน (NG): ${ngCount}` : ''}
     list.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', async () => {
       if (!(await showConfirmModal('ลบรายการนี้?', { confirmLabel: 'ลบ', danger: true }))) return;
       const delId = b.dataset.del;
-      const remaining = loadHistory().filter(h => String(h.id) !== delId);
+      const allHist = loadHistory();
+      const deletedRecord = allHist.find(h => String(h.id) === delId); // 🆕 เก็บไว้ก่อนลบ เพื่อเอาไปแจ้งเตือน
+      const remaining = allHist.filter(h => String(h.id) !== delId);
       localStorage.setItem(SK.history, JSON.stringify(remaining)); // อัปเดต local ทันที
       deleteHistoryFromSupabase(delId); // ลบเฉพาะแถวนี้จริงๆ บน Supabase (ไม่กระทบแถวอื่น)
+      notifyHistoryDeleted(deletedRecord); // 🆕 [แก้ข้อ 1] แจ้งเตือน Telegram ว่ามีการลบประวัติ
       populateHistoryPanel(); toast('ลบแล้ว', 'ok');
     }));
     list.querySelectorAll('.hi-photo').forEach(img => {

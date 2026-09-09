@@ -4,7 +4,54 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
   <meta name="theme-color" content="#16324f">
-  <title>ใบตรวจสอบสภาพจิ๊ก | JIG Inspection</title>
+  <title>Dashboard ภาพรวม | JIG Inspection (TV Display)</title>
+  <!-- 🆕 หน้านี้เป็น "TV Dashboard" — สำเนาจาก index.html แยกต่างหาก ไม่แก้ index.html/app.js เดิมเลยแม้แต่บรรทัดเดียว
+       ใช้ app.js/style.css ชุดเดียวกับแอปหลักตรงๆ (ไม่ fork/ไม่ copy logic) ผ่าน "shim" 2 จุดที่ทำงานก่อน
+       app.js จะเริ่มรัน (ดูสคริปต์ก่อน BOOT LOADING SCREEN ด้านล่าง):
+         1) ปลอมค่า session ให้ผ่านหน้า Login (TV ไม่มีคนพิมพ์ user/pass) — เช็คแค่ PIN ของหน้านี้แทน
+         2) ปลอมผลเช็ค GPS ให้ผ่านเสมอ (TV ไม่มี GPS) กัน modal เตือนเด้ง
+       หลัง app.js โหลดเสร็จ มีสคริปต์ท้ายไฟล์คอยสลับไปแท็บ Dashboard อัตโนมัติ + ซ่อนเมนู/ปุ่มแก้ไขทั้งหมด
+       ให้เหลือแต่หน้าจอ Dashboard ล้วนๆ สำหรับเปิดทิ้งไว้บนทีวีครับ -->
+  <style>
+    /* ── PIN Gate — ด่านกันเบื้องต้นก่อนเข้าดู Dashboard (กรอกครั้งเดียว จำไว้ในเครื่อง TV เครื่องนั้น) ── */
+    #tv-pin-gate {
+      position: fixed; inset: 0; z-index: 999999;
+      background: linear-gradient(160deg, #0f2137, #16324f);
+      display: flex; align-items: center; justify-content: center; padding: 20px;
+    }
+    #tv-pin-gate.hidden { display: none; }
+    .tv-pin-box {
+      background: #fff; border-radius: 18px; padding: 34px 28px;
+      width: min(360px, 92vw); text-align: center;
+      box-shadow: 0 24px 70px hsla(0,0%,0%,0.4);
+    }
+    .tv-pin-icon {
+      width: 56px; height: 56px; margin: 0 auto 16px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      background: hsla(38, 70%, 50%, 0.15); color: #b8860b;
+    }
+    .tv-pin-title { font-size: 17px; font-weight: 700; color: #1e293b; margin-bottom: 4px; }
+    .tv-pin-sub { font-size: 12.5px; color: #64748b; margin-bottom: 20px; }
+    #tv-pin-input {
+      width: 100%; text-align: center; letter-spacing: 10px; font-size: 22px;
+      padding: 12px; border-radius: 10px; border: 1.5px solid #cbd5e1;
+      margin-bottom: 12px; font-family: inherit; outline: none;
+    }
+    #tv-pin-input:focus { border-color: #2f6fd1; }
+    #tv-pin-error { color: #dc2626; font-size: 12.5px; min-height: 18px; margin-bottom: 10px; }
+    #tv-pin-submit {
+      width: 100%; padding: 12px; border-radius: 10px; border: none;
+      background: linear-gradient(120deg, #16324f, #0f2137); color: #fff;
+      font-size: 14px; font-weight: 700; font-family: inherit; cursor: pointer;
+    }
+    #tv-pin-submit:hover { filter: brightness(1.1); }
+    /* ── ปรับเลย์เอาต์สำหรับจอทีวี — เต็มความกว้าง ไม่มี margin เผื่อ sidebar (ถูกซ่อนไปแล้ว) ── */
+    body.tv-mode .app-container { margin-left: 0 !important; max-width: 1600px !important; }
+    /* ── ซ่อนปุ่ม/องค์ประกอบที่เป็นการแก้ไข ไม่เหมาะกับจอดูอย่างเดียว ── */
+    body.tv-mode .drag-handle,
+    body.tv-mode #btn-dash-reset-order,
+    body.tv-mode .hi-bulk-btn { display: none !important; }
+  </style>
   <!-- 🆕 ไอคอนแอป — ใช้ตอนปักหมุด/สร้าง shortcut บน PC, Android, iPhone/iPad -->
   <link rel="icon" type="image/png" sizes="32x32" href="icon-32.png">
   <link rel="icon" type="image/x-icon" href="favicon.ico">
@@ -42,6 +89,75 @@
   <link rel="stylesheet" href="style.css?v=20260903">
 </head>
 <body>
+
+<!-- 🆕 PIN GATE — ด่านแรกสุดก่อนเห็นอะไรทั้งสิ้น (สูงกว่า boot-loading อีกที) -->
+<div id="tv-pin-gate">
+  <div class="tv-pin-box">
+    <div class="tv-pin-icon">
+      <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+    </div>
+    <div class="tv-pin-title">TV Dashboard</div>
+    <div class="tv-pin-sub">กรอกรหัส PIN เพื่อดูภาพรวมการตรวจสอบ</div>
+    <input type="password" id="tv-pin-input" inputmode="numeric" maxlength="6" placeholder="••••••" autocomplete="off">
+    <div id="tv-pin-error"></div>
+    <button id="tv-pin-submit">เข้าดู Dashboard</button>
+  </div>
+</div>
+<script>
+  // ⚠️ ตั้งค่า PIN ของหน้านี้ตรงนี้ครับพี่บี — ค่าเริ่มต้นตอนนี้คือ 246800 เปลี่ยนเป็นเลขที่พี่บีต้องการได้เลย
+  // (PIN นี้เก็บไว้ในไฟล์ตรงๆ เหมือน anon key ของ Supabase ที่ฝังอยู่ใน app.js อยู่แล้ว —
+  //  กันคนทั่วไปที่บังเอิญได้ลิงก์ ไม่ใช่ระบบรักษาความปลอดภัยระดับสูง)
+  var TV_DASHBOARD_PIN = '246800';
+  var TV_PIN_STORAGE_KEY = 'tv_dashboard_pin_ok_v1';
+
+  (function () {
+    var gate = document.getElementById('tv-pin-gate');
+    var input = document.getElementById('tv-pin-input');
+    var errorEl = document.getElementById('tv-pin-error');
+    var submitBtn = document.getElementById('tv-pin-submit');
+
+    function tryUnlock() {
+      if (input.value === TV_DASHBOARD_PIN) {
+        try { localStorage.setItem(TV_PIN_STORAGE_KEY, '1'); } catch (e) {}
+        gate.classList.add('hidden');
+      } else {
+        errorEl.textContent = 'PIN ไม่ถูกต้อง ลองใหม่อีกครั้ง';
+        input.value = '';
+        input.focus();
+      }
+    }
+
+    var alreadyUnlocked = false;
+    try { alreadyUnlocked = localStorage.getItem(TV_PIN_STORAGE_KEY) === '1'; } catch (e) {}
+    if (alreadyUnlocked) {
+      gate.classList.add('hidden');
+    } else {
+      submitBtn.addEventListener('click', tryUnlock);
+      input.addEventListener('keydown', function (e) { if (e.key === 'Enter') tryUnlock(); });
+      setTimeout(function () { input.focus(); }, 200);
+    }
+
+    // 🆕 SHIM #1 — ปลอม session ให้ app.js เข้าใจว่า login แล้ว (ข้ามหน้า Login จริง — TV ไม่มีคนพิมพ์ user/pass)
+    //    app.js เช็คแค่ว่ามีค่านี้ใน sessionStorage หรือไม่ตอนโหลดหน้า ไม่ได้ยืนยันกับ Supabase ซ้ำ
+    //    จึงตั้งค่าปลอมตรงนี้ได้โดยไม่ต้องแก้ app.js เลยสักบรรทัด
+    try {
+      sessionStorage.setItem('jig_app_user', JSON.stringify({
+        user_id: 'tv-dashboard', username: 'tv-dashboard',
+        full_name: 'TV Dashboard', role: 'viewer'
+      }));
+    } catch (e) {}
+
+    // 🆕 SHIM #2 — ปลอมผลเช็ค GPS ให้สำเร็จเสมอ (TV ไม่มี GPS) กัน modal เตือนเด้งขึ้นมา
+    //    ปลอดภัย เพราะหน้านี้ไม่มีการตรวจสอบ/บันทึกอะไรที่ต้องใช้พิกัดจริงอยู่แล้ว (ดูอย่างเดียว)
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition = function (success) {
+        if (success) success({ coords: { latitude: 0, longitude: 0, accuracy: 1 } });
+      };
+    }
+
+    document.body.classList.add('tv-mode');
+  })();
+</script>
 
 <!-- 🆕 BOOT LOADING SCREEN — โผล่ทันทีตั้งแต่เปิดหน้า (ก่อนแม้แต่ app-login-gate) คลุมช่วงที่ยังโหลด
      ข้อมูลจาก Supabase ไม่เสร็จ (ไม่ใช่ splash screen ของ OS ที่คุมไม่ได้ — อันนี้คุมเองได้ 100%)
@@ -336,8 +452,8 @@
       <h2 class="card-title"><span class="title-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></span> ลายเซ็นรับรอง (พิมพ์ชื่อ)</h2>
       <div class="sig-row">
         <div class="sig-block">
-          <label>ลงชื่อผู้ตรวจสอบ</label>
-          <input type="text" id="sig-inspector" class="sig-text-input" placeholder="พิมพ์ชื่อผู้ลงนามตรวจสอบ">
+          <label>ผู้ตรวจสอบ</label>
+          <input type="text" id="sig-inspector" class="sig-text-input" placeholder="พิมพ์ชื่อผู้ตรวจสอบ">
         </div>
       </div>
     </div>
@@ -1086,6 +1202,48 @@
     <div id="ng-list-modal-body" style="padding: 14px 16px; overflow-y: auto; flex: 1;"></div>
   </div>
 </div>
+
+<!-- 🆕 TV MODE — ทำงานหลัง app.js โหลดเสร็จ: รอจน init() พร้อมจริง แล้วสลับไปแท็บ Dashboard +
+     ซ่อนเมนู/ปุ่มแก้ไขทั้งหมด เหลือแต่หน้าจอดูอย่างเดียว + ตั้งรีโหลดหน้าอัตโนมัติเป็นระยะกันค้าง -->
+<script>
+  (function () {
+    // รอจน boot-loading ถูกซ่อน (แปลว่า init() ของ app.js ไปถึง renderFilter() แล้ว ข้อมูลพร้อมแสดงจริง)
+    // มี fallback กันรอตลอดไป ถ้าเช็คเกิน 12 วิ (init() มี safety-timeout ของตัวเองอยู่แล้วที่ 8 วิ) ก็ลองต่อเลย
+    var attempts = 0;
+    var maxAttempts = 120; // 120 x 100ms = 12 วินาที
+    var poll = setInterval(function () {
+      attempts++;
+      var bootEl = document.getElementById('boot-loading');
+      var ready = bootEl && bootEl.classList.contains('hide');
+      if (ready || attempts >= maxAttempts) {
+        clearInterval(poll);
+        enterTvMode();
+      }
+    }, 100);
+
+    function enterTvMode() {
+      // สลับไปแท็บ Dashboard อัตโนมัติ (ใช้กลไกเดิมของแอปตรงๆ ไม่ต้องเขียน render ใหม่เอง)
+      var dashTabBtn = document.querySelector('.tab-btn[data-tab="dashboard"]');
+      if (dashTabBtn) dashTabBtn.click();
+
+      // ซ่อนเมนู/ปุ่มที่ไม่เกี่ยวกับการ "ดู" — TV ไม่มีคนคอยกดอะไรเลย
+      ['app-sidebar', 'sidebar-overlay', 'sidebar-open-toggle', 'btn-admin-toggle',
+       'btn-app-logout', 'app-user-badge', 'theme-toggle'].forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el) el.classList.add('hidden');
+      });
+      // 🆕 ซ่อนการ์ด "AI วิเคราะห์ข้อมูล" ด้วย — ต้องกดปุ่ม/ใส่ API Key เอง ไม่เหมาะกับจอ TV ที่ไม่มีคนโต้ตอบ
+      var aiPanel = document.querySelector('.dash-block[data-block-id="ai-panel"]');
+      if (aiPanel) aiPanel.classList.add('hidden');
+
+      // ตั้งรีโหลดหน้าทั้งหมดทุก 10 นาที — วิธีที่ชัวร์ที่สุดกันจอ TV ที่เปิดค้างไว้หลายชั่วโมง/ข้ามวัน
+      // เจอปัญหาแปลกๆ สะสม (realtime หลุดเงียบๆ, หน่วยความจำโป่ง) เพราะไม่มีคนอยู่หน้าจอคอยกดรีเฟรชเอง
+      // ระหว่างนั้นข้อมูลยังอัปเดตสดผ่าน Supabase Realtime อยู่แล้ว (ดู subscribeRealtime() ใน app.js)
+      // อันนี้เป็นแค่ safety-net เสริมอีกชั้น
+      setTimeout(function () { location.reload(); }, 10 * 60 * 1000);
+    }
+  })();
+</script>
 
 </body>
 </html>

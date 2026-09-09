@@ -730,7 +730,7 @@ ${row.jig_doc_no ? `_${esc(row.jig_doc_no)}_` : ''}
 🔍 จุดเช็คทั้งหมด: ${items.length} จุด
 ✅ ผ่าน (OK): ${okCount}${ngCount > 0 ? `  ❌ ไม่ผ่าน (NG): ${ngCount}` : ''}
 ${ngListText(items)}
-✅ หัวหน้างานตรวจสอบแล้วโดย: ${esc(row.approved_by)}
+${row.notes ? `📝 หมายเหตุเพิ่มเติม: ${esc(row.notes)}\n` : ''}✅ หัวหน้างานตรวจสอบแล้วโดย: ${esc(row.approved_by)}
 🕐 เมื่อ: ${new Date(row.approved_at).toLocaleString('th-TH')}
 ${row.supervisor_comment ? `💬 ความเห็น: ${esc(row.supervisor_comment)}` : ''}
 ━━━━━━━━━━━━━━━━━━━━━━━━━
