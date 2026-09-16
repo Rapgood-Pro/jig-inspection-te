@@ -1133,6 +1133,36 @@ h1, h2, h3, h4, label, button, input, select, textarea, p, span, div {
   font-family: var(--font-thai); white-space: nowrap;
 }
 .btn-adm-add:hover { background: var(--accent-hover); }
+/* 🆕 Line ที่ขาดตรวจบ่อยสุด (Top offenders) — อยู่เหนือรายการแยกตามวัน */
+.adm-uncl-top { margin-bottom: 10px; }
+.adm-uncl-top-title {
+  font-size: 10.5px; font-weight: 700; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: .03em;
+  margin-bottom: 6px; display: flex; align-items: center; gap: 4px;
+}
+.uncl-top-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 10px; border-radius: 8px;
+  background: var(--bg-input); border: 1px solid var(--border-input);
+  margin-bottom: 4px;
+}
+.uncl-top-item.rank-1 { border-color: var(--ng); background: var(--ng-bg); }
+.uncl-top-rank {
+  flex-shrink: 0; width: 20px; height: 20px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 700; color: #fff;
+  background: var(--pending);
+}
+.uncl-top-item.rank-1 .uncl-top-rank { background: var(--ng); }
+.uncl-top-item.rank-2 .uncl-top-rank { background: var(--fixed); }
+.uncl-top-item.rank-3 .uncl-top-rank { background: var(--accent); }
+.uncl-top-name { flex: 1; font-size: 11.5px; color: var(--text-main); font-weight: 600; }
+.uncl-top-name .uncl-dept { color: var(--text-muted); font-weight: 400; }
+.uncl-top-count {
+  flex-shrink: 0; font-size: 10px; font-weight: 700; color: var(--ng);
+  background: var(--ng-bg); padding: 2px 8px; border-radius: 999px; white-space: nowrap;
+}
+
 /* 🆕 Line ที่ไม่มีการตรวจเช็คในแต่ละวัน (Admin Panel) */
 .adm-uncl-summary { font-size: 11px; color: var(--text-muted); margin-bottom: 6px; }
 .adm-uncl-item {

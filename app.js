@@ -5151,8 +5151,9 @@ ${ngCount > 0 ? `❌ ไม่ผ่าน (NG): ${ngCount}` : ''}
   async function renderUncheckedLinesReport() {
     const listEl = $('adm-uncl-list');
     const summaryEl = $('adm-uncl-summary');
+    const topEl = $('adm-uncl-top');
     if (!listEl) return;
-    if (!sb) { listEl.innerHTML = '<span class="chip-empty">ต้องเชื่อมต่อ Supabase ก่อน</span>'; return; }
+    if (!sb) { listEl.innerHTML = '<span class="chip-empty">ต้องเชื่อมต่อ Supabase ก่อน</span>'; if (topEl) topEl.innerHTML = ''; return; }
 
     const from = $('adm-uncl-from')?.value;
     const to = $('adm-uncl-to')?.value;
@@ -5160,6 +5161,7 @@ ${ngCount > 0 ? `❌ ไม่ผ่าน (NG): ${ngCount}` : ''}
 
     listEl.innerHTML = '<span class="chip-empty">🔄 กำลังโหลด...</span>';
     if (summaryEl) summaryEl.textContent = '';
+    if (topEl) topEl.innerHTML = '';
 
     try {
       const { data, error } = await sb.rpc('get_unchecked_lines', { p_from: from, p_to: to });
@@ -5169,6 +5171,25 @@ ${ngCount > 0 ? `❌ ไม่ผ่าน (NG): ${ngCount}` : ''}
       if (!rows.length) {
         listEl.innerHTML = '<span class="chip-empty">✅ ไม่พบ Line ที่ขาดการตรวจในช่วงที่เลือก</span>';
         return;
+      }
+
+      // ── Top offenders — นับจำนวนวันที่ขาดตรวจต่อ Line ในช่วงที่เลือก เรียงมากไปน้อย โชว์ 5 อันดับแรก ──
+      const countByLine = {};
+      rows.forEach(r => { countByLine[r.line_id] = (countByLine[r.line_id] || 0) + 1; });
+      const ranked = Object.entries(countByLine).sort((a, b) => b[1] - a[1]).slice(0, 5);
+      if (topEl && ranked.length) {
+        const items = ranked.map(([lid, count], i) => {
+          const line = catalog.lines.find(l => l.id === lid);
+          const dept = line ? catalog.depts.find(dp => dp.id === line.deptId) : null;
+          const label = line ? (line.name || line.id) : lid;
+          return `
+            <div class="uncl-top-item rank-${i + 1}">
+              <span class="uncl-top-rank">${i + 1}</span>
+              <span class="uncl-top-name">${escHtml(label)}${dept ? ` <span class="uncl-dept">(${escHtml(dept.name)})</span>` : ''}</span>
+              <span class="uncl-top-count">ขาด ${count} วัน</span>
+            </div>`;
+        }).join('');
+        topEl.innerHTML = `<div class="adm-uncl-top-title">⚠️ Line ที่ขาดตรวจบ่อยสุด</div>${items}`;
       }
 
       // จัดกลุ่มตามวันที่ (ใหม่สุดก่อน) — แต่ละวันแสดงว่า Line ไหนขาดตรวจบ้าง
