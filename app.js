@@ -1165,6 +1165,7 @@
     bindJigSearch();
     bindThemeToggle();
     bindAdminPanel();
+    bindUncheckedLinesPanel();   // 🆕 Line ที่ไม่มีการตรวจเช็คในแต่ละวัน (Admin Panel)
     bindActionButtons();
     bindLightbox();
     bindHistoryPanel();
@@ -2488,6 +2489,7 @@ ${ngCount > 0 ? `❌ ไม่ผ่าน (NG): ${ngCount}` : ''}
       if (admLoggedIn) {
         openPanel('admin-panel');
         if (_adminSessionPass) { renderStaffAccountList(); renderLoginLogList(); }
+        renderUncheckedLinesReport();   // 🆕 Line ที่ไม่มีการตรวจเช็คในแต่ละวัน
       }
       else {
         $('admin-login-modal').classList.remove('hidden');
@@ -2516,6 +2518,7 @@ ${ngCount > 0 ? `❌ ไม่ผ่าน (NG): ${ngCount}` : ''}
           _adminSessionPass = pass; // เก็บไว้ใน memory ใช้แนบ RPC (โหมด local ไม่มี RPC จริงอยู่แล้ว แต่ตั้งไว้ให้ครบ flow)
           $('admin-login-modal').classList.add('hidden');
           openPanel('admin-panel');
+          renderUncheckedLinesReport();   // 🆕 Line ที่ไม่มีการตรวจเช็คในแต่ละวัน
           toast('เข้าสู่ระบบสำเร็จ (local mode)', 'ok');
         } else {
           toast('รหัสผ่านไม่ถูกต้อง', 'ng');
@@ -2548,6 +2551,7 @@ ${ngCount > 0 ? `❌ ไม่ผ่าน (NG): ${ngCount}` : ''}
           localStorage.setItem('jig_admin_user', username);
           $('admin-login-modal').classList.add('hidden');
           openPanel('admin-panel');
+          renderUncheckedLinesReport();   // 🆕 Line ที่ไม่มีการตรวจเช็คในแต่ละวัน
           toast(`เข้าสู่ระบบสำเร็จ (${username})`, 'ok');
         } else {
           toast('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง', 'ng');
@@ -5136,6 +5140,78 @@ ${ngCount > 0 ? `❌ ไม่ผ่าน (NG): ${ngCount}` : ''}
     } catch (e) {
       console.error('unmarkJigSkipToday sync error:', e);
     }
+  }
+
+  /* ══════════════════════════════════════
+     LINE ที่ไม่มีการตรวจเช็คในแต่ละวัน (Admin Panel)
+     ดึงผ่าน RPC get_unchecked_lines(p_from, p_to) — คำนวณฝั่งเซิร์ฟเวอร์ทั้งหมด
+     (ดู add_unchecked_lines_report.sql) ไม่ดาวน์โหลด history เต็มแถว/รูปถ่ายมาไล่เช็คฝั่ง browser
+     เกณฑ์: Line ที่ "ไม่ตรวจเลยสักจุด" ในวันนั้น (ไม่นับ JIG ที่มาร์คไม่ได้ผลิตออก)
+  ══════════════════════════════════════ */
+  async function renderUncheckedLinesReport() {
+    const listEl = $('adm-uncl-list');
+    const summaryEl = $('adm-uncl-summary');
+    if (!listEl) return;
+    if (!sb) { listEl.innerHTML = '<span class="chip-empty">ต้องเชื่อมต่อ Supabase ก่อน</span>'; return; }
+
+    const from = $('adm-uncl-from')?.value;
+    const to = $('adm-uncl-to')?.value;
+    if (!from || !to) return;
+
+    listEl.innerHTML = '<span class="chip-empty">🔄 กำลังโหลด...</span>';
+    if (summaryEl) summaryEl.textContent = '';
+
+    try {
+      const { data, error } = await sb.rpc('get_unchecked_lines', { p_from: from, p_to: to });
+      if (error) throw error;
+
+      const rows = data || [];
+      if (!rows.length) {
+        listEl.innerHTML = '<span class="chip-empty">✅ ไม่พบ Line ที่ขาดการตรวจในช่วงที่เลือก</span>';
+        return;
+      }
+
+      // จัดกลุ่มตามวันที่ (ใหม่สุดก่อน) — แต่ละวันแสดงว่า Line ไหนขาดตรวจบ้าง
+      const byDate = {};
+      rows.forEach(r => { (byDate[r.check_date] = byDate[r.check_date] || []).push(r.line_id); });
+      const dates = Object.keys(byDate).sort((a, b) => b.localeCompare(a));
+
+      if (summaryEl) summaryEl.textContent = `พบ Line ที่ขาดการตรวจรวม ${rows.length} ครั้ง ใน ${dates.length} วัน`;
+
+      listEl.innerHTML = dates.map(d => {
+        const dt = new Date(d + 'T00:00:00');
+        const dateLabel = dt.toLocaleDateString('th-TH', { day: '2-digit', month: 'short', year: 'numeric', weekday: 'short' });
+        const lineChips = byDate[d].map(lid => {
+          const line = catalog.lines.find(l => l.id === lid);
+          const dept = line ? catalog.depts.find(dp => dp.id === line.deptId) : null;
+          const label = line ? (line.name || line.id) : lid;
+          return `<span class="uncl-line-chip">${escHtml(label)}${dept ? ` <span class="uncl-dept">(${escHtml(dept.name)})</span>` : ''}</span>`;
+        }).join('');
+        return `
+          <div class="adm-uncl-item">
+            <div class="uncl-date">${escHtml(dateLabel)} <span class="uncl-count">${byDate[d].length} Line</span></div>
+            <div class="uncl-lines">${lineChips}</div>
+          </div>`;
+      }).join('');
+    } catch (e) {
+      console.error('get_unchecked_lines error (ตรวจสอบว่ารัน SQL migration add_unchecked_lines_report.sql แล้วหรือยัง):', e);
+      listEl.innerHTML = '<span class="chip-empty">โหลดไม่สำเร็จ — ตรวจสอบว่ารัน SQL migration (add_unchecked_lines_report.sql) แล้วหรือยัง</span>';
+    }
+  }
+
+  function bindUncheckedLinesPanel() {
+    const fromEl = $('adm-uncl-from');
+    const toEl = $('adm-uncl-to');
+    if (!fromEl || !toEl) return;
+
+    // ค่าเริ่มต้น: ย้อนหลัง 7 วันถึงวันนี้
+    const today = new Date();
+    const weekAgo = new Date();
+    weekAgo.setDate(today.getDate() - 6);
+    toEl.value = localDateStr(today);
+    fromEl.value = localDateStr(weekAgo);
+
+    $('btn-adm-uncl-search').addEventListener('click', renderUncheckedLinesReport);
   }
 
   /* ══════════════════════════════════════

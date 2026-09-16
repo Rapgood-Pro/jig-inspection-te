@@ -796,6 +796,22 @@
       <div class="admin-list admin-list-scroll" id="adm-line-list"></div>
     </div>
 
+    <!-- 🆕 Line ที่ไม่มีการตรวจเช็คในแต่ละวัน — ดึงผ่าน RPC get_unchecked_lines (คำนวณฝั่งเซิร์ฟเวอร์
+         ไม่ดาวน์โหลดรูปถ่าย/ข้อมูลเต็มแถวจาก history เหมือนวิธีเดิม, ดู add_unchecked_lines_report.sql) -->
+    <div class="admin-section">
+      <div class="admin-section-title"><svg class="inline-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> Line ที่ไม่มีการตรวจเช็คในแต่ละวัน</div>
+      <div style="font-size:11px; color:var(--text-muted); margin-bottom:8px; line-height:1.5;">
+        แสดง Line ที่ <b>ไม่มีการตรวจเลยสักจุด</b> ในวันนั้นๆ (Line ที่มาร์ค "ไม่ได้ผลิต" ครบทุก JIG แล้ว จะไม่ถูกนับว่าขาดตรวจ) — เลือกช่วงวันที่แล้วกด "ค้นหา"
+      </div>
+      <div class="admin-input-row">
+        <input type="date" id="adm-uncl-from" title="จากวันที่">
+        <input type="date" id="adm-uncl-to" title="ถึงวันที่">
+        <button class="btn-adm-add" id="btn-adm-uncl-search">ค้นหา</button>
+      </div>
+      <div id="adm-uncl-summary" class="adm-uncl-summary"></div>
+      <div class="admin-list admin-list-scroll" id="adm-uncl-list"></div>
+    </div>
+
     <!-- Document Settings (ค่ากลางทั้งระบบ ตาม ISO — Doc No. เดียวทั้งบริษัท) -->
     <div class="admin-section">
       <div class="admin-section-title"><svg class="inline-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg> ควบคุมเอกสาร (Document Control)</div>
