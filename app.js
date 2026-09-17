@@ -2226,6 +2226,12 @@ ${ngCount > 0 ? `❌ ไม่ผ่าน (NG): ${ngCount}` : ''}
 
         // Insert history (แบ่ง batch 40 แถวต่อครั้ง เพราะ history มีรูป base64 ใหญ่)
         // การเขียน history (upsert, ไม่ใช่ DELETE) ยังเปิดให้ anon เขียนตรงได้ตาม RLS ปัจจุบัน
+        // 🆕 (fix) เก็บแถวที่เพิ่งเขียนจริง (รูปแบบ snake_case เหมือนที่อยู่บน Supabase) ไว้ด้วย
+        // เพื่อเอาไป map กลับเป็น camelCase ก่อน cache ลง localStorage — ไฟล์ backup ที่ผู้ใช้
+        // อัปโหลดมาเป็น snake_case ดิบๆ ถ้า cache ตรงๆ แบบเดิม หน้า "ประวัติการตรวจ" จะอ่าน
+        // h.deptName/h.jigName/h.timestamp ไม่เจอ (มันชื่อ dept_name/jig_name/ts) ทำให้ขึ้น
+        // "Invalid Date" และชื่อ Dept/Line/JIG ว่างเปล่า
+        const insertedRows = [];
         for (let i = 0; i < hist.length; i += 40) {
           const batch = hist.slice(i, i + 40).map(h => ({
             id: h.id, ts: h.timestamp || h.ts,
@@ -2259,6 +2265,7 @@ ${ngCount > 0 ? `❌ ไม่ผ่าน (NG): ${ngCount}` : ''}
           }));
           const { error } = await sb.from('history').upsert(batch, { onConflict: 'id' });
           if (error) throw error;
+          insertedRows.push(...batch);
         }
 
         setTimeout(() => { _syncing = false; }, 2000);
@@ -2266,7 +2273,11 @@ ${ngCount > 0 ? `❌ ไม่ผ่าน (NG): ${ngCount}` : ''}
         // Save normalized catalog to localStorage
         localStorage.setItem(SK.catalog, JSON.stringify(cat));
         localStorage.setItem(SK.catalogPulledAt, String(Date.now())); // 🆕 เพิ่งอัปขึ้น Supabase สดๆ ถือว่า cache สดแล้ว
-        localStorage.setItem(SK.history, JSON.stringify(hist));
+        // 🆕 (fix) แปลง snake_case → camelCase ด้วย mapHistoryRow เดียวกับที่ใช้ตอน pull จาก Supabase
+        // ปกติ เพื่อให้ h.deptName/h.jigName/h.timestamp/h.gps/h.approvedBy ฯลฯ ถูกต้องครบ
+        // แทนที่จะ cache ไฟล์ backup ดิบๆ ที่เป็น snake_case ตรงๆ เหมือนเดิม
+        const normalizedHist = insertedRows.map(mapHistoryRow);
+        localStorage.setItem(SK.history, JSON.stringify(normalizedHist));
 
         // รีโหลดข้อมูลเข้า memory และ re-render
         if (typeof refreshCatalogGlobal === 'function') await refreshCatalogGlobal();
