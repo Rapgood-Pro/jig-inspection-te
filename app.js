@@ -2165,6 +2165,13 @@ ${ngCount > 0 ? `❌ ไม่ผ่าน (NG): ${ngCount}` : ''}
         lineId: j.lineId || j.line_id,  // Support both formats
         docNo: j.docNo || j.doc_no || '',
         bgImage: j.bgImage || j.bg_image || null,
+        // 🆕 (fix 2026-09-17) ค่าเอกสารเฉพาะ JIG นี้ — เดิม import ไม่เก็บฟิลด์เหล่านี้เลย
+        // ทำให้ JIG ที่เคยตั้ง Doc No./Rev เฉพาะตัวไว้ หลุดหายกลับไปใช้ค่ากลางหลัง import
+        docNoOverride: j.docNoOverride || j.doc_no_override || '',
+        formRevLevelOverride: j.formRevLevelOverride || j.form_rev_level_override || '',
+        revLevelOverride: j.revLevelOverride || j.rev_level_override || '',
+        revDateOverride: j.revDateOverride || j.rev_date_override || '',
+        issueDateOverride: j.issueDateOverride || j.issue_date_override || '',
         checkpoints: (j.checkpoints || []).map(cp => ({
           id: cp.id,
           label: cp.label || '',
@@ -2181,71 +2188,44 @@ ${ngCount > 0 ? `❌ ไม่ผ่าน (NG): ${ngCount}` : ''}
       if (!(await showConfirmModal(`นำเข้าข้อมูลนี้จะ "แทนที่" ข้อมูลปัจจุบันทั้งหมด\n(${cat.jigs.length} JIG, ${hist.length} ประวัติ)\nแนะนำให้ Export สำรองไว้ก่อน — ต้องการดำเนินการต่อหรือไม่?`, { confirmLabel: 'ดำเนินการต่อ', danger: true }))) return;
 
       if (!sb) { toast('ไม่ได้เชื่อมต่อ Supabase', 'ng'); return; }
+
+      // 🆕 (fix 2026-09-17) ตารางแคตตาล็อก (departments/lines/jigs/checkpoints/templates)
+      // ถูกล็อก RLS ไม่ให้ anon เขียนตรงแล้ว (ดู 01_lockdown_rls_and_rpc.sql) — ต้องผ่าน RPC
+      // 'sync_catalog' พร้อมรหัสผ่าน Admin เท่านั้น เหมือน pushCatalogToSupabase()
+      // เดิมโค้ดนี้ยัง upsert ตรงอยู่ ซึ่งจะถูก RLS ปฏิเสธเงียบๆ ทำให้ import แคตตาล็อกไม่ขึ้นจริง
+      const pass = getAdminPass();
+      if (!pass) { toast('ต้องกรอกรหัสผ่าน Admin เพื่อ Import ข้อมูล', 'ng'); return; }
+
       toast('กำลังนำเข้าข้อมูลขึ้น Supabase...', 'ok');
 
       try {
         _syncing = true;
 
-        // ✅ SAFE: ใช้ UPSERT แทน DELETE+INSERT - ป้องกันข้อมูลหาย
-        // Upsert departments
-        if (cat.depts.length) {
-          const { error } = await sb.from('departments').upsert(
-            cat.depts.map(d => ({ id: d.id, name: d.name })),
-            { onConflict: 'id' }
-          );
-          if (error) throw error;
-        }
-
-        // Upsert lines (data is already normalized to camelCase)
-        if (cat.lines.length) {
-          const { error } = await sb.from('lines').upsert(
-            cat.lines.map(l => ({ 
-              id: l.id, 
-              dept_id: l.deptId,  // Now using normalized camelCase
-              name: l.name 
-            })),
-            { onConflict: 'id' }
-          );
-          if (error) throw error;
-        }
-
-        // Upsert jigs (data is already normalized to camelCase)
-        if (cat.jigs.length) {
-          const { error } = await sb.from('jigs').upsert(
-            cat.jigs.map(j => ({ 
-              id: j.id, 
-              line_id: j.lineId,  // Now using normalized camelCase
-              name: j.name, 
-              doc_no: j.docNo, 
-              bg_image: j.bgImage 
-            })),
-            { onConflict: 'id' }
-          );
-          if (error) throw error;
-        }
-
-        // ✅ Upsert checkpoints แยก
-        const allCps = cat.jigs.flatMap(j =>
-          (j.checkpoints || []).map(cp => ({ jig_id: j.id, item_id: cp.id, label: cp.label || '', sub: cp.sub || '', method: cp.method || '', x: cp.x || 0, y: cp.y || 0, type: cp.type || null, min: cp.min ?? null, max: cp.max ?? null, unit: cp.unit || null }))
-        );
-        for (let i = 0; i < allCps.length; i += 200) {
-          const { error } = await sb.from('checkpoints').upsert(
-            allCps.slice(i, i + 200),
-            { onConflict: 'jig_id,item_id' }
-          );
-          if (error) throw error;
-        }
-
-        // ✅ Upsert templates
-        if ((cat.templates || []).length) {
-          const { error } = await sb.from('templates').upsert(
-            cat.templates.map(t => ({ id: t.id, name: t.name, items: t.items || [] })),
-            { onConflict: 'id' }
-          );
-          if (error) throw error;
+        // ✅ Sync แคตตาล็อกทั้งก้อน (depts/lines/jigs/checkpoints/templates) ผ่าน RPC เดียว
+        const catalogPayload = {
+          p_password: pass,
+          p_departments: cat.depts.length ? cat.depts.map(d => ({ id: d.id, name: d.name })) : null,
+          p_lines: cat.lines.length ? cat.lines.map(l => ({ id: l.id, deptId: l.deptId, name: l.name })) : null,
+          p_jigs: cat.jigs.length ? cat.jigs.map(j => ({
+            id: j.id, lineId: j.lineId, name: j.name, docNo: j.docNo || '', bgImage: j.bgImage || null,
+            docNoOverride: j.docNoOverride || '',
+            formRevLevelOverride: j.formRevLevelOverride || '',
+            revLevelOverride: j.revLevelOverride || '',
+            revDateOverride: j.revDateOverride || '',
+            issueDateOverride: j.issueDateOverride || '',
+          })) : null,
+          p_checkpoints: cat.jigs.length ? flattenCheckpoints(cat.jigs) : null,
+          p_templates: (cat.templates || []).length ? cat.templates.map(t => ({ id: t.id, name: t.name, items: t.items || [] })) : null,
+        };
+        const { data: catalogOk, error: catalogErr } = await sb.rpc('sync_catalog', catalogPayload);
+        if (catalogErr) throw catalogErr;
+        if (!catalogOk) {
+          _adminSessionPass = null;
+          throw new Error('รหัสผ่าน Admin ไม่ถูกต้อง — แคตตาล็อกไม่ถูก import');
         }
 
         // Insert history (แบ่ง batch 40 แถวต่อครั้ง เพราะ history มีรูป base64 ใหญ่)
+        // การเขียน history (upsert, ไม่ใช่ DELETE) ยังเปิดให้ anon เขียนตรงได้ตาม RLS ปัจจุบัน
         for (let i = 0; i < hist.length; i += 40) {
           const batch = hist.slice(i, i + 40).map(h => ({
             id: h.id, ts: h.timestamp || h.ts,
@@ -2258,6 +2238,24 @@ ${ngCount > 0 ? `❌ ไม่ผ่าน (NG): ${ngCount}` : ''}
             items: h.items || [],
             sig_inspector: h.sigInspector || h.sig_inspector || '',
             sig_supervisor: h.sigSupervisor || h.sig_supervisor || '',
+            // 🆕 (fix 2026-09-17) ฟิลด์ Approval Workflow — เดิมไม่ได้ import เลย ทำให้ทุกรายการ
+            // ที่เคยอนุมัติแล้ว (หัวหน้างาน/ผู้จัดการ) ถูกรีเซ็ตกลับเป็น "รอตรวจสอบ" ทั้งหมดหลัง import
+            approval_status: h.approvalStatus || h.approval_status || 'pending',
+            approved_by: h.approvedBy || h.approved_by || null,
+            approved_at: h.approvedAt || h.approved_at || null,
+            supervisor_comment: h.supervisorComment || h.supervisor_comment || null,
+            manager_approval_status: h.managerApprovalStatus || h.manager_approval_status || 'pending',
+            manager_approved_by: h.managerApprovedBy || h.manager_approved_by || null,
+            manager_approved_at: h.managerApprovedAt || h.manager_approved_at || null,
+            manager_comment: h.managerComment || h.manager_comment || null,
+            // 🆕 (fix 2026-09-17) ฟิลด์ GPS — เดิมไม่ได้ import เลย ทำให้พิกัดตอนตรวจหายหมดหลัง import
+            gps_latitude: (h.gps && h.gps.latitude) ?? h.gps_latitude ?? null,
+            gps_longitude: (h.gps && h.gps.longitude) ?? h.gps_longitude ?? null,
+            gps_accuracy: (h.gps && h.gps.accuracy) ?? h.gps_accuracy ?? null,
+            gps_timestamp: (h.gps && h.gps.timestamp) ?? h.gps_timestamp ?? null,
+            gps_status: (h.gps && h.gps.status) || h.gps_status || 'unknown',
+            // 🆕 (fix 2026-09-17) ฟิลด์ "กันลบอัตโนมัติ" — เดิมไม่ได้ import เลย
+            protected: h.protected ?? false,
           }));
           const { error } = await sb.from('history').upsert(batch, { onConflict: 'id' });
           if (error) throw error;
@@ -5151,9 +5149,8 @@ ${ngCount > 0 ? `❌ ไม่ผ่าน (NG): ${ngCount}` : ''}
   async function renderUncheckedLinesReport() {
     const listEl = $('adm-uncl-list');
     const summaryEl = $('adm-uncl-summary');
-    const topEl = $('adm-uncl-top');
     if (!listEl) return;
-    if (!sb) { listEl.innerHTML = '<span class="chip-empty">ต้องเชื่อมต่อ Supabase ก่อน</span>'; if (topEl) topEl.innerHTML = ''; return; }
+    if (!sb) { listEl.innerHTML = '<span class="chip-empty">ต้องเชื่อมต่อ Supabase ก่อน</span>'; return; }
 
     const from = $('adm-uncl-from')?.value;
     const to = $('adm-uncl-to')?.value;
@@ -5161,7 +5158,6 @@ ${ngCount > 0 ? `❌ ไม่ผ่าน (NG): ${ngCount}` : ''}
 
     listEl.innerHTML = '<span class="chip-empty">🔄 กำลังโหลด...</span>';
     if (summaryEl) summaryEl.textContent = '';
-    if (topEl) topEl.innerHTML = '';
 
     try {
       const { data, error } = await sb.rpc('get_unchecked_lines', { p_from: from, p_to: to });
@@ -5171,25 +5167,6 @@ ${ngCount > 0 ? `❌ ไม่ผ่าน (NG): ${ngCount}` : ''}
       if (!rows.length) {
         listEl.innerHTML = '<span class="chip-empty">✅ ไม่พบ Line ที่ขาดการตรวจในช่วงที่เลือก</span>';
         return;
-      }
-
-      // ── Top offenders — นับจำนวนวันที่ขาดตรวจต่อ Line ในช่วงที่เลือก เรียงมากไปน้อย โชว์ 5 อันดับแรก ──
-      const countByLine = {};
-      rows.forEach(r => { countByLine[r.line_id] = (countByLine[r.line_id] || 0) + 1; });
-      const ranked = Object.entries(countByLine).sort((a, b) => b[1] - a[1]).slice(0, 5);
-      if (topEl && ranked.length) {
-        const items = ranked.map(([lid, count], i) => {
-          const line = catalog.lines.find(l => l.id === lid);
-          const dept = line ? catalog.depts.find(dp => dp.id === line.deptId) : null;
-          const label = line ? (line.name || line.id) : lid;
-          return `
-            <div class="uncl-top-item rank-${i + 1}">
-              <span class="uncl-top-rank">${i + 1}</span>
-              <span class="uncl-top-name">${escHtml(label)}${dept ? ` <span class="uncl-dept">(${escHtml(dept.name)})</span>` : ''}</span>
-              <span class="uncl-top-count">ขาด ${count} วัน</span>
-            </div>`;
-        }).join('');
-        topEl.innerHTML = `<div class="adm-uncl-top-title">⚠️ Line ที่ขาดตรวจบ่อยสุด</div>${items}`;
       }
 
       // จัดกลุ่มตามวันที่ (ใหม่สุดก่อน) — แต่ละวันแสดงว่า Line ไหนขาดตรวจบ้าง
