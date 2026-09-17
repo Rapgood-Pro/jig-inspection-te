@@ -5187,19 +5187,50 @@ ${ngCount > 0 ? `❌ ไม่ผ่าน (NG): ${ngCount}` : ''}
 
       if (summaryEl) summaryEl.textContent = `พบ Line ที่ขาดการตรวจรวม ${rows.length} ครั้ง ใน ${dates.length} วัน`;
 
+      // 🆕 (ปรับดีไซน์) โรงงานที่มีหลายแผนก — จัดกลุ่ม Line ตามแผนกในแต่ละวัน แล้วขึ้นชื่อแผนก
+      // เป็น "หัวข้อ" ครั้งเดียวต่อกลุ่ม แทนที่จะย้ำชื่อแผนก (Dept) ซ้ำต่อท้ายทุก chip แบบเดิม
+      // (ถ้าทั้งระบบมีแผนกเดียว ก็ไม่ต้องโชว์หัวข้อแผนกเลย เพราะไม่ได้ช่วยแยกอะไร มีแต่จะรกขึ้น)
+      const showDeptLabel = catalog.depts.length > 1;
+      // แยกชื่อ Line ออกเป็นชื่อหลัก + ส่วนขยายในวงเล็บ (เช่น "SIDE STEP (Common RG01,RG04,...)")
+      // เพื่อลดวงเล็บยาวๆ ให้ดูเป็นข้อความรองแทนที่จะแข่งความสำคัญกับชื่อ Line เอง
+      const splitLineLabel = (label) => {
+        const m = /^(.*?)\s*(\(.+\))\s*$/.exec(label);
+        if (!m) return escHtml(label);
+        return `${escHtml(m[1])}<span class="uncl-chip-sub">${escHtml(m[2])}</span>`;
+      };
+
       listEl.innerHTML = dates.map(d => {
         const dt = new Date(d + 'T00:00:00');
         const dateLabel = dt.toLocaleDateString('th-TH', { day: '2-digit', month: 'short', year: 'numeric', weekday: 'short' });
-        const lineChips = byDate[d].map(lid => {
+
+        // จัดกลุ่ม Line ของวันนี้ตามแผนก
+        const deptGroups = {};   // deptId -> { name, lines: [label,...] }
+        const deptOrder = [];
+        byDate[d].forEach(lid => {
           const line = catalog.lines.find(l => l.id === lid);
           const dept = line ? catalog.depts.find(dp => dp.id === line.deptId) : null;
-          const label = line ? (line.name || line.id) : lid;
-          return `<span class="uncl-line-chip">${escHtml(label)}${dept ? ` <span class="uncl-dept">(${escHtml(dept.name)})</span>` : ''}</span>`;
+          const key = dept ? dept.id : '__unknown';
+          if (!deptGroups[key]) { deptGroups[key] = { name: dept ? dept.name : 'ไม่ทราบแผนก', lines: [] }; deptOrder.push(key); }
+          deptGroups[key].lines.push(line ? (line.name || line.id) : lid);
+        });
+        deptOrder.sort((a, b) => deptGroups[a].name.localeCompare(deptGroups[b].name, 'th'));
+
+        const groupsHtml = deptOrder.map(key => {
+          const g = deptGroups[key];
+          const chips = g.lines.map(label => `<span class="uncl-line-chip">${splitLineLabel(label)}</span>`).join('');
+          return `<div class="uncl-dept-group">
+            ${showDeptLabel ? `<div class="uncl-dept-label">${escHtml(g.name)}</div>` : ''}
+            <div class="uncl-lines">${chips}</div>
+          </div>`;
         }).join('');
+
         return `
           <div class="adm-uncl-item">
-            <div class="uncl-date">${escHtml(dateLabel)} <span class="uncl-count">${byDate[d].length} Line</span></div>
-            <div class="uncl-lines">${lineChips}</div>
+            <div class="uncl-date-row">
+              <span class="uncl-date">${escHtml(dateLabel)}</span>
+              <span class="uncl-count">${byDate[d].length} Line</span>
+            </div>
+            ${groupsHtml}
           </div>`;
       }).join('');
     } catch (e) {
