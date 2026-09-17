@@ -1097,6 +1097,8 @@
     dbgLog('ensureLocalAdminPassBootstrap() เสร็จ');
     pullJigSkipsFromSupabase(); // ดึงรายการ JIG ที่มาร์คไม่ได้ผลิตวันนี้
     dbgLog('เรียก pullJigSkipsFromSupabase() แล้ว (ไม่รอผล)');
+    pullHolidaysFromSupabase(); // 🆕 ดึงรายการวันหยุดบริษัท
+    dbgLog('เรียก pullHolidaysFromSupabase() แล้ว (ไม่รอผล)');
 
     // ─── ตรวจสอบ GPS Status ───
     // ⚠️ ห้าม await ตรงนี้! บน iOS Safari ถ้ากล่องขออนุญาต Location (native permission dialog)
@@ -1166,6 +1168,7 @@
     bindThemeToggle();
     bindAdminPanel();
     bindUncheckedLinesPanel();   // 🆕 Line ที่ไม่มีการตรวจเช็คในแต่ละวัน (Admin Panel)
+    bindHolidayPanel();          // 🆕 ปฏิทินวันหยุดบริษัท (Admin Panel)
     bindActionButtons();
     bindLightbox();
     bindHistoryPanel();
@@ -2499,6 +2502,7 @@ ${ngCount > 0 ? `❌ ไม่ผ่าน (NG): ${ngCount}` : ''}
         openPanel('admin-panel');
         if (_adminSessionPass) { renderStaffAccountList(); renderLoginLogList(); }
         renderUncheckedLinesReport();   // 🆕 Line ที่ไม่มีการตรวจเช็คในแต่ละวัน
+        renderHolidayCalendar(); renderHolidayList(); // 🆕 ปฏิทินวันหยุดบริษัท
       }
       else {
         $('admin-login-modal').classList.remove('hidden');
@@ -2528,6 +2532,7 @@ ${ngCount > 0 ? `❌ ไม่ผ่าน (NG): ${ngCount}` : ''}
           $('admin-login-modal').classList.add('hidden');
           openPanel('admin-panel');
           renderUncheckedLinesReport();   // 🆕 Line ที่ไม่มีการตรวจเช็คในแต่ละวัน
+          renderHolidayCalendar(); renderHolidayList(); // 🆕 ปฏิทินวันหยุดบริษัท
           toast('เข้าสู่ระบบสำเร็จ (local mode)', 'ok');
         } else {
           toast('รหัสผ่านไม่ถูกต้อง', 'ng');
@@ -2561,6 +2566,7 @@ ${ngCount > 0 ? `❌ ไม่ผ่าน (NG): ${ngCount}` : ''}
           $('admin-login-modal').classList.add('hidden');
           openPanel('admin-panel');
           renderUncheckedLinesReport();   // 🆕 Line ที่ไม่มีการตรวจเช็คในแต่ละวัน
+          renderHolidayCalendar(); renderHolidayList(); // 🆕 ปฏิทินวันหยุดบริษัท
           toast(`เข้าสู่ระบบสำเร็จ (${username})`, 'ok');
         } else {
           toast('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง', 'ng');
@@ -5152,6 +5158,142 @@ ${ngCount > 0 ? `❌ ไม่ผ่าน (NG): ${ngCount}` : ''}
   }
 
   /* ══════════════════════════════════════
+     🆕 HOLIDAYS — วันหยุดบริษัท (Admin Panel)
+     ใช้ตัด "วันที่" ออกจากการนับ "ยังไม่ตรวจ" ทั้งในหน้า Line Status (index/dashboard TV)
+     และรายงาน "Line ที่ไม่มีการตรวจเช็คในแต่ละวัน" — เก็บเป็น array {date:'YYYY-MM-DD', name}
+     sync ผ่านตาราง Supabase ชื่อ holidays (ดู add_holidays_table.sql) ตาม pattern เดียวกับ jig_skips
+  ══════════════════════════════════════ */
+  const HOLIDAYS_KEY = 'jig_holidays_v1';
+  function loadHolidays() {
+    try { return JSON.parse(localStorage.getItem(HOLIDAYS_KEY)) || []; }
+    catch (e) { return []; }
+  }
+  function saveHolidaysLocal(arr) {
+    try { localStorage.setItem(HOLIDAYS_KEY, JSON.stringify(arr)); }
+    catch (e) { console.error('saveHolidaysLocal error:', e); }
+  }
+  function isHoliday(dateStr) { return loadHolidays().some(h => h.date === dateStr); }
+  function getHolidayInfo(dateStr) { return loadHolidays().find(h => h.date === dateStr) || null; }
+
+  async function pullHolidaysFromSupabase() {
+    if (!sb) return;
+    try {
+      const { data, error } = await sb.from('holidays').select('date, name').order('date', { ascending: true });
+      if (error) throw error; // ตาราง holidays ยังไม่มี (ยังไม่ได้รัน SQL migration add_holidays_table.sql) — ใช้ cache local ต่อไป
+      const arr = (data || []).map(r => ({ date: r.date, name: r.name || 'วันหยุดบริษัท' }));
+      saveHolidaysLocal(arr);
+      renderLineStatusList(); renderHolidayCalendar(); renderHolidayList();
+    } catch (e) {
+      console.error('pullHolidaysFromSupabase error (ตรวจสอบว่ารัน SQL migration add_holidays_table.sql แล้วหรือยัง):', e);
+    }
+  }
+  // ── เพิ่ม/แก้ชื่อวันหยุด (อัปเดต local ก่อนทันที แล้วค่อย sync ขึ้น Supabase) ──
+  async function addHoliday(dateStr, name) {
+    if (!dateStr) return;
+    const label = (name || '').trim() || 'วันหยุดบริษัท';
+    const current = loadHolidays().filter(h => h.date !== dateStr);
+    current.push({ date: dateStr, name: label });
+    current.sort((a, b) => a.date.localeCompare(b.date));
+    saveHolidaysLocal(current);
+    renderLineStatusList(); renderHolidayCalendar(); renderHolidayList();
+    toast(`มาร์ควันหยุด ${dateStr} แล้ว`, 'ok');
+    if (!sb) return;
+    try {
+      const { error } = await sb.from('holidays').upsert({ date: dateStr, name: label }, { onConflict: 'date' });
+      if (error) throw error;
+    } catch (e) {
+      console.error('addHoliday sync error:', e);
+      toast('บันทึกขึ้น Supabase ไม่สำเร็จ (บันทึกไว้ในเครื่องนี้ก่อนแล้ว)', 'ng');
+    }
+  }
+  async function removeHoliday(dateStr) {
+    saveHolidaysLocal(loadHolidays().filter(h => h.date !== dateStr));
+    renderLineStatusList(); renderHolidayCalendar(); renderHolidayList();
+    toast('ยกเลิกวันหยุดแล้ว', 'ok');
+    if (!sb) return;
+    try {
+      const { error } = await sb.from('holidays').delete().eq('date', dateStr);
+      if (error) throw error;
+    } catch (e) {
+      console.error('removeHoliday sync error:', e);
+    }
+  }
+
+  // ── ปฏิทินเลือกวันหยุด (Admin Panel) ──
+  let holCalMonth = new Date(); // เดือนที่กำลังแสดงอยู่ในปฏิทิน (วันที่ 1 ของเดือน ใช้แค่ปี/เดือน)
+  function renderHolidayCalendar() {
+    const grid = $('holiday-calendar-grid');
+    const label = $('holcal-month-label');
+    if (!grid || !label) return;
+    const y = holCalMonth.getFullYear(), m = holCalMonth.getMonth();
+    label.textContent = holCalMonth.toLocaleDateString('th-TH', { month: 'long', year: 'numeric' });
+
+    const firstDow = new Date(y, m, 1).getDay(); // 0=อา
+    const daysInMonth = new Date(y, m + 1, 0).getDate();
+    const holSet = new Set(loadHolidays().map(h => h.date));
+    const t = todayStr();
+
+    const dowLabels = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
+    let html = dowLabels.map(d => `<div class="holiday-cal-dow">${d}</div>`).join('');
+    for (let i = 0; i < firstDow; i++) html += `<div class="holiday-cal-cell empty"></div>`;
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dateStr = `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      const isHol = holSet.has(dateStr);
+      const isToday = dateStr === t;
+      const info = isHol ? getHolidayInfo(dateStr) : null;
+      html += `<div class="holiday-cal-cell${isHol ? ' is-holiday' : ''}${isToday ? ' is-today' : ''}" data-date="${dateStr}" title="${isHol ? escHtml(info.name) + ' — คลิกเพื่อยกเลิก' : 'คลิกเพื่อมาร์คเป็นวันหยุด'}">${d}</div>`;
+    }
+    grid.innerHTML = html;
+    grid.querySelectorAll('.holiday-cal-cell:not(.empty)').forEach(cell => {
+      cell.addEventListener('click', () => {
+        const dateStr = cell.dataset.date;
+        if (holSet.has(dateStr)) removeHoliday(dateStr);
+        else addHoliday(dateStr, $('adm-hol-name')?.value || '');
+      });
+    });
+  }
+  function renderHolidayList() {
+    const listEl = $('adm-hol-list');
+    const countEl = $('holiday-count');
+    if (!listEl) return;
+    const list = loadHolidays();
+    if (countEl) countEl.textContent = String(list.length);
+    if (!list.length) {
+      listEl.innerHTML = '<span class="chip-empty">ยังไม่มีวันหยุดที่มาร์คไว้</span>';
+      return;
+    }
+    listEl.innerHTML = list.map(h => {
+      const dt = new Date(h.date + 'T00:00:00');
+      const dateLabel = dt.toLocaleDateString('th-TH', { day: '2-digit', month: 'short', year: 'numeric', weekday: 'short' });
+      return `
+        <div class="adm-uncl-item" style="display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px 12px;">
+          <div style="min-width:0;">
+            <div style="font-size:12px; font-weight:700; color:var(--text-main);">${escHtml(dateLabel)}</div>
+            <div style="font-size:11px; color:var(--text-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escHtml(h.name)}</div>
+          </div>
+          <button type="button" class="btn-icon-sm btn-remove-holiday" data-date="${h.date}" title="ลบวันหยุดนี้">✕</button>
+        </div>`;
+    }).join('');
+    listEl.querySelectorAll('.btn-remove-holiday').forEach(btn => {
+      btn.addEventListener('click', () => removeHoliday(btn.dataset.date));
+    });
+  }
+  function bindHolidayPanel() {
+    const prevBtn = $('btn-holcal-prev'), nextBtn = $('btn-holcal-next'), addBtn = $('btn-adm-hol-add');
+    if (!prevBtn || !nextBtn) return;
+    prevBtn.addEventListener('click', () => { holCalMonth.setMonth(holCalMonth.getMonth() - 1); renderHolidayCalendar(); });
+    nextBtn.addEventListener('click', () => { holCalMonth.setMonth(holCalMonth.getMonth() + 1); renderHolidayCalendar(); });
+    if (addBtn) addBtn.addEventListener('click', () => {
+      const dateStr = $('adm-hol-date')?.value;
+      if (!dateStr) { toast('เลือกวันที่ก่อน', 'ng'); return; }
+      addHoliday(dateStr, $('adm-hol-name')?.value || '');
+      if ($('adm-hol-name')) $('adm-hol-name').value = '';
+    });
+    renderHolidayCalendar();
+    renderHolidayList();
+  }
+
+  /* ══════════════════════════════════════
      LINE ที่ไม่มีการตรวจเช็คในแต่ละวัน (Admin Panel)
      ดึงผ่าน RPC get_unchecked_lines(p_from, p_to) — คำนวณฝั่งเซิร์ฟเวอร์ทั้งหมด
      (ดู add_unchecked_lines_report.sql) ไม่ดาวน์โหลด history เต็มแถว/รูปถ่ายมาไล่เช็คฝั่ง browser
@@ -5181,7 +5323,8 @@ ${ngCount > 0 ? `❌ ไม่ผ่าน (NG): ${ngCount}` : ''}
       ]);
       if (uncheckedRes.error) throw uncheckedRes.error;
 
-      const rows = uncheckedRes.data || [];
+      const holidaySet = new Set(loadHolidays().map(h => h.date)); // 🆕 ตัดวันหยุดบริษัทออกจากรายงาน ไม่นับว่า "ขาดตรวจ"
+      const rows = (uncheckedRes.data || []).filter(r => !holidaySet.has(r.check_date));
       if (!rows.length) {
         listEl.innerHTML = '<span class="chip-empty">✅ ไม่พบ Line ที่ขาดการตรวจในช่วงที่เลือก</span>';
         return;
@@ -5315,6 +5458,7 @@ ${ngCount > 0 ? `❌ ไม่ผ่าน (NG): ${ngCount}` : ''}
   function computeLineStatusToday() {
     const t = todayStr();
     const hist = loadHistory();
+    const isHolidayToday = isHoliday(t); // 🆕 วันนี้เป็นวันหยุดบริษัทหรือไม่
     const skippedJigIds = new Set(loadJigSkips().filter(s => s.date === t).map(s => s.jigId));
     const checkedJigsByLine = {}; // lineId -> Set(jigId)
     const ngByLine = {}; // lineId -> true ถ้าเจอ NG อย่างน้อย 1 JIG
@@ -5349,7 +5493,11 @@ ${ngCount > 0 ? `❌ ไม่ผ่าน (NG): ${ngCount}` : ''}
         return { id: j.id, name: j.name, status: 'pending' };
       });
 
-      if (!checkedSet && totalJigs > 0) { map[lineId] = { jigDetails }; return; } // ยังไม่ตรวจเลยสักจุด — เก็บ jigDetails ไว้ใช้แสดงรายละเอียดได้ แต่ไม่มี status สรุป (แสดงสีเทา)
+      if (!checkedSet && totalJigs > 0) {
+        // 🆕 วันนี้เป็นวันหยุดบริษัท และ Line นี้ยังไม่ถูกตรวจเลยสักจุด — ไม่ถือเป็น "ยังไม่ตรวจ" (ไม่ขึ้นสีเทา/แจ้งเตือน)
+        if (isHolidayToday) { map[lineId] = { status: 'holiday', jigDetails }; return; }
+        map[lineId] = { jigDetails }; return; // ยังไม่ตรวจเลยสักจุด — เก็บ jigDetails ไว้ใช้แสดงรายละเอียดได้ แต่ไม่มี status สรุป (แสดงสีเทา)
+      }
       let status;
       if (ngByLine[lineId]) status = 'ng';
       else if (totalJigs === 0 || checked >= totalJigs) status = 'ok'; // ไม่มีอะไรต้องตรวจ (ทุก JIG ไม่ได้ผลิต) ถือว่าครบ
@@ -5390,14 +5538,16 @@ ${ngCount > 0 ? `❌ ไม่ผ่าน (NG): ${ngCount}` : ''}
       const dept = catalog.depts.find(d => d.id === deptId);
       const deptName = dept ? dept.name : 'ไม่ระบุแผนก';
       const cards = groups[deptId].map(l => {
-        const info = statusMap[l.id]; // undefined | { status: 'ok'|'ng'|'partial', checked, total, jigDetails }
+        const info = statusMap[l.id]; // undefined | { status: 'ok'|'ng'|'partial'|'holiday', checked, total, jigDetails }
         const status = info ? info.status : undefined;
-        const statusClass = status === 'ng' ? 'status-ng' : status === 'ok' ? 'status-ok' : status === 'partial' ? 'status-partial' : '';
+        const statusClass = status === 'ng' ? 'status-ng' : status === 'ok' ? 'status-ok' : status === 'partial' ? 'status-partial' : status === 'holiday' ? 'status-holiday' : '';
         const progress = info && info.total ? ` (${info.checked}/${info.total} JIG)` : '';
         const skipNote = info && info.skipped ? ` [ข้าม ${info.skipped} ไม่ได้ผลิต]` : '';
+        const holName = status === 'holiday' ? (getHolidayInfo(todayStr())?.name || 'วันหยุดบริษัท') : '';
         const statusLabel = status === 'ng' ? 'พบ NG' + progress + skipNote
           : status === 'ok' ? 'ตรวจแล้ว ครบทุก JIG' + skipNote
           : status === 'partial' ? 'กำลังตรวจ' + progress + skipNote
+          : status === 'holiday' ? `📅 ${holName}`
           : 'ยังไม่ตรวจวันนี้';
         const progressBadge = (status === 'partial' || status === 'ng') && info && info.total
           ? `<span class="line-status-card-progress">${info.checked}/${info.total}</span>` : '';
