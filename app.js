@@ -23,7 +23,6 @@
     catalogPulledAt: 'jig_catalog_pulled_at_v1',
     // — เก็บเฉพาะ local (ไม่ sync ขึ้น Supabase) เพราะเป็นสถานะเฉพาะเครื่อง/browser นี้เท่านั้น
     // ไม่ได้แปลว่าคนอื่นในทีมจะเห็นสถานะเดียวกัน
-    holidays: 'jig_holidays_v1', // 🆕 วันหยุดบริษัท [{date,name}] — ตั้งจากปฏิทินใน Admin Panel, ดู add_holidays.sql
   };
 
   // โลโก้บริษัท (embed เป็น base64 ไว้ในไฟล์เลย จะได้ไม่ต้องพึ่งไฟล์แยกตอน deploy/print PDF)
@@ -529,28 +528,6 @@
   let jigSearchTerm = ''; // filters the Level-3 JIG chip list
   let checkState = [];  // current inspection items
   let cpEditJigId = null; // JIG ที่กำลังแก้ไขจุดตรวจ/รูปพื้นหลังใน Admin Panel
-
-  // 🆕 วันหยุดบริษัท (Holiday Calendar, Admin Panel) — ใช้กรอง "Line ที่ไม่มีการตรวจเช็ค"
-  // ไม่ให้นับ Line/JIG ที่ไม่ได้ตรวจในวันที่บริษัทหยุด ดู add_holidays.sql สำหรับฝั่ง Supabase
-  let holidays = []; // [{date:'YYYY-MM-DD', name:string}]
-  let holidayCalView = { year: new Date().getFullYear(), month: new Date().getMonth() }; // ตำแหน่งเดือน/ปีที่ปฏิทินกำลังแสดง
-  // อ้างอิงจากปฏิทินบริษัทปี 2569 (2026) ที่แนบมา — เฉพาะวันหยุดประเพณี/นักขัตฤกษ์ 13 วัน (ไม่รวม
-  // วันหยุดพิเศษเฉพาะบริษัท 28 วัน ที่อ่านจากตารางสแกนไม่ชัวร์พอ — ให้คลิกเพิ่มเองในปฏิทินแทน)
-  const PUBLIC_HOLIDAYS_2026 = [
-    { date: '2026-01-01', name: 'วันขึ้นปีใหม่' },
-    { date: '2026-03-03', name: 'วันมาฆบูชา' },
-    { date: '2026-04-13', name: 'วันสงกรานต์' },
-    { date: '2026-04-14', name: 'วันสงกรานต์' },
-    { date: '2026-05-01', name: 'วันแรงงาน' },
-    { date: '2026-06-03', name: 'วันเฉลิมพระชนมพรรษาพระบรมราชินี' },
-    { date: '2026-07-28', name: 'วันเฉลิมพระชนมพรรษา ร.10' },
-    { date: '2026-07-29', name: 'วันอาสาฬหบูชา' },
-    { date: '2026-08-12', name: 'วันแม่แห่งชาติ' },
-    { date: '2026-10-13', name: 'วันนวมินทรมหาราช' },
-    { date: '2026-10-23', name: 'วันปิยมหาราช' },
-    { date: '2026-12-05', name: 'วันคล้ายวันเฉลิมพระชนมพรรษา ร.9' },
-    { date: '2026-12-31', name: 'วันสิ้นปี' },
-  ];
 
   /* ══════════════════════════════════════
      STORAGE (localStorage — Step 1)
@@ -1120,9 +1097,6 @@
     dbgLog('ensureLocalAdminPassBootstrap() เสร็จ');
     pullJigSkipsFromSupabase(); // ดึงรายการ JIG ที่มาร์คไม่ได้ผลิตวันนี้
     dbgLog('เรียก pullJigSkipsFromSupabase() แล้ว (ไม่รอผล)');
-    loadHolidaysLocal();        // 🆕 วันหยุดบริษัท — ใช้ cache local ไปก่อนระหว่างรอ Supabase
-    pullHolidaysFromSupabase(); // 🆕 แล้วอัปเดตให้ล่าสุดทันทีที่ดึงเสร็จ (ไม่รอผล)
-    dbgLog('เรียก pullHolidaysFromSupabase() แล้ว (ไม่รอผล)');
 
     // ─── ตรวจสอบ GPS Status ───
     // ⚠️ ห้าม await ตรงนี้! บน iOS Safari ถ้ากล่องขออนุญาต Location (native permission dialog)
@@ -1191,8 +1165,6 @@
     bindJigSearch();
     bindThemeToggle();
     bindAdminPanel();
-    bindHolidayCalendar();       // 🆕 วันหยุดบริษัท (Admin Panel)
-    renderHolidayCalendar(); renderHolidayList();
     bindUncheckedLinesPanel();   // 🆕 Line ที่ไม่มีการตรวจเช็คในแต่ละวัน (Admin Panel)
     bindActionButtons();
     bindLightbox();
@@ -5180,219 +5152,10 @@ ${ngCount > 0 ? `❌ ไม่ผ่าน (NG): ${ngCount}` : ''}
   }
 
   /* ══════════════════════════════════════
-     วันหยุดบริษัท (Holiday Calendar, Admin Panel)
-     — Admin คลิกวันที่ในปฏิทินเพื่อตั้ง/ยกเลิกวันหยุด เก็บลง Supabase ผ่าน
-       RPC upsert_holidays / delete_holiday (เช็ครหัสผ่าน Admin ฝั่ง DB เหมือน
-       RPC อื่นๆ) ดู add_holidays.sql — วันที่ตั้งเป็นวันหยุดจะถูกกรองออกจาก
-       รายงาน "Line ที่ไม่มีการตรวจเช็คในแต่ละวัน" ด้านล่าง (กรองฝั่ง browser
-       จากตาราง holidays ที่ sync ไว้แล้ว ไม่ต้องแก้ RPC get_unchecked_lines เดิม)
-  ══════════════════════════════════════ */
-  function loadHolidaysLocal() {
-    try {
-      const raw = localStorage.getItem(SK.holidays);
-      holidays = raw ? JSON.parse(raw) : [];
-      if (!Array.isArray(holidays)) holidays = [];
-    } catch (e) { holidays = []; }
-  }
-  function saveHolidaysLocal() {
-    try { localStorage.setItem(SK.holidays, JSON.stringify(holidays)); }
-    catch (e) { console.error('saveHolidaysLocal error:', e); }
-  }
-  function isHoliday(dateStr) {
-    return holidays.find(h => h.date === dateStr) || null;
-  }
-  async function pullHolidaysFromSupabase() {
-    if (!sb) return;
-    try {
-      const { data, error } = await sb.from('holidays').select('holiday_date, name');
-      if (error) throw error; // ตาราง holidays ยังไม่มี (ยังไม่ได้รัน SQL migration add_holidays.sql) — ใช้ cache local ต่อไป
-      holidays = (data || []).map(r => ({ date: r.holiday_date, name: r.name || 'วันหยุด' }));
-      saveHolidaysLocal();
-      renderHolidayCalendar();
-      renderHolidayList();
-    } catch (e) {
-      console.warn('pullHolidaysFromSupabase error (ตรวจสอบว่ารัน SQL migration add_holidays.sql แล้วหรือยัง — ใช้ข้อมูล local ต่อไป):', e);
-    }
-  }
-  // ✅ SECURITY: เขียนผ่าน RPC 'upsert_holidays' / 'delete_holiday' เท่านั้น (เช็ค password ฝั่ง DB)
-  async function upsertHolidaysToSupabase(items) {
-    if (!sb) { toast('ไม่ได้เชื่อมต่อ Supabase — บันทึกแค่ในเครื่องนี้', 'ng'); return false; }
-    const pass = getAdminPass();
-    if (!pass) return false;
-    try {
-      const { data: ok, error } = await sb.rpc('upsert_holidays', {
-        p_password: pass,
-        p_items: items.map(it => ({ date: it.date, name: it.name || 'วันหยุด' })),
-      });
-      if (error) throw error;
-      if (!ok) {
-        _adminSessionPass = null;
-        toast('รหัสผ่าน Admin ไม่ถูกต้อง — บันทึกวันหยุดขึ้น Supabase ไม่สำเร็จ', 'ng');
-        return false;
-      }
-      return true;
-    } catch (e) {
-      console.error('upsertHolidaysToSupabase error (ตรวจสอบว่ารัน SQL migration add_holidays.sql แล้วหรือยัง):', e);
-      toast('บันทึกในเครื่องแล้ว แต่ sync ขึ้น Supabase ไม่สำเร็จ — ตรวจสอบว่ารัน SQL migration (add_holidays.sql) แล้วหรือยัง', 'ng');
-      return false;
-    }
-  }
-  async function deleteHolidayFromSupabase(dateStr) {
-    if (!sb) return false;
-    const pass = getAdminPass();
-    if (!pass) return false;
-    try {
-      const { data: ok, error } = await sb.rpc('delete_holiday', { p_password: pass, p_date: dateStr });
-      if (error) throw error;
-      if (!ok) {
-        _adminSessionPass = null;
-        toast('รหัสผ่าน Admin ไม่ถูกต้อง — ลบวันหยุดขึ้น Supabase ไม่สำเร็จ', 'ng');
-        return false;
-      }
-      return true;
-    } catch (e) {
-      console.error('deleteHolidayFromSupabase error:', e);
-      toast('ลบในเครื่องแล้ว แต่ sync ขึ้น Supabase ไม่สำเร็จ — ตรวจสอบว่ารัน SQL migration (add_holidays.sql) แล้วหรือยัง', 'ng');
-      return false;
-    }
-  }
-
-  async function addHoliday(dateStr, name) {
-    const cleanName = (name || '').trim() || 'วันหยุด';
-    holidays = holidays.filter(h => h.date !== dateStr);
-    holidays.push({ date: dateStr, name: cleanName });
-    holidays.sort((a, b) => a.date.localeCompare(b.date));
-    saveHolidaysLocal();
-    renderHolidayCalendar(); renderHolidayList();
-    const ok = await upsertHolidaysToSupabase([{ date: dateStr, name: cleanName }]);
-    if (ok) toast(`ตั้ง "${cleanName}" เป็นวันหยุดแล้ว`, 'ok');
-  }
-  async function removeHoliday(dateStr) {
-    const h = isHoliday(dateStr);
-    if (!h) return;
-    if (!(await showConfirmModal(`ยกเลิกวันหยุด "${h.name}" (${h.date}) ใช่หรือไม่?`, { danger: true, confirmLabel: 'ลบ' }))) return;
-    holidays = holidays.filter(x => x.date !== dateStr);
-    saveHolidaysLocal();
-    renderHolidayCalendar(); renderHolidayList();
-    const ok = await deleteHolidayFromSupabase(dateStr);
-    if (ok) toast('ยกเลิกวันหยุดแล้ว', 'ok');
-  }
-  function onHolidayCellClick(dateStr) {
-    const existing = isHoliday(dateStr);
-    if (existing) { removeHoliday(dateStr); return; }
-    const name = prompt(`ตั้งชื่อวันหยุดสำหรับวันที่ ${dateStr}:`, 'วันหยุด');
-    if (name === null) return; // กดยกเลิก
-    addHoliday(dateStr, name);
-  }
-
-  function renderHolidayCalendar() {
-    const grid = $('hol-cal-grid');
-    const label = $('hol-cal-label');
-    if (!grid || !label) return;
-    const { year, month } = holidayCalView;
-    label.textContent = `${TH_MONTHS_FULL[month]} ${year + 543}`;
-    const firstDow = new Date(year, month, 1).getDay(); // 0=อาทิตย์
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    const todayStr0 = localDateStr(new Date());
-    let html = '';
-    for (let i = 0; i < firstDow; i++) html += `<div class="holiday-cal-cell is-empty"></div>`;
-    for (let d = 1; d <= daysInMonth; d++) {
-      const dateObj = new Date(year, month, d);
-      const dateStr = localDateStr(dateObj);
-      const h = isHoliday(dateStr);
-      const classes = ['holiday-cal-cell'];
-      if (dateObj.getDay() === 0) classes.push('is-sunday');
-      if (dateStr === todayStr0) classes.push('is-today');
-      if (h) classes.push('is-holiday');
-      const title = h ? `${h.name} (คลิกเพื่อยกเลิก)` : 'คลิกเพื่อตั้งเป็นวันหยุด';
-      html += `<div class="${classes.join(' ')}" data-date="${dateStr}" title="${escHtml(title)}">${d}</div>`;
-    }
-    grid.innerHTML = html;
-  }
-  function renderHolidayList() {
-    const el = $('hol-list');
-    if (!el) return;
-    const { year } = holidayCalView;
-    const inYear = holidays.filter(h => h.date.startsWith(String(year))).sort((a, b) => a.date.localeCompare(b.date));
-    if (!inYear.length) { el.innerHTML = `<span class="chip-empty">ยังไม่มีวันหยุดที่ตั้งไว้ในปี ${year + 543}</span>`; return; }
-    el.innerHTML = inYear.map(h => {
-      const dt = new Date(h.date + 'T00:00:00');
-      const dateLabel = dt.toLocaleDateString('th-TH', { day: '2-digit', month: 'short', year: 'numeric' });
-      return `<div class="hol-list-item">
-        <span class="hol-date">${escHtml(dateLabel)}</span>
-        <span class="hol-name">${escHtml(h.name)}</span>
-        <button type="button" class="adm-item-del" data-hol-del="${escHtml(h.date)}" title="ยกเลิกวันหยุดนี้">✕</button>
-      </div>`;
-    }).join('');
-  }
-
-  function bindHolidayCalendar() {
-    const grid = $('hol-cal-grid');
-    if (!grid) return;
-    $('btn-hol-prev').addEventListener('click', () => {
-      holidayCalView.month--;
-      if (holidayCalView.month < 0) { holidayCalView.month = 11; holidayCalView.year--; }
-      renderHolidayCalendar(); renderHolidayList();
-    });
-    $('btn-hol-next').addEventListener('click', () => {
-      holidayCalView.month++;
-      if (holidayCalView.month > 11) { holidayCalView.month = 0; holidayCalView.year++; }
-      renderHolidayCalendar(); renderHolidayList();
-    });
-    grid.addEventListener('click', (e) => {
-      const cell = e.target.closest('.holiday-cal-cell:not(.is-empty)');
-      if (!cell) return;
-      onHolidayCellClick(cell.dataset.date);
-    });
-    $('hol-list').addEventListener('click', (e) => {
-      const btn = e.target.closest('[data-hol-del]');
-      if (!btn) return;
-      removeHoliday(btn.dataset.holDel);
-    });
-    // นำเข้าวันหยุดราชการ 13 วัน (อ้างอิงปี 2569 — ถ้าปฏิทินกำลังแสดงปีอื่น จะเลื่อนปีให้ตรงกับที่กำลังดูอยู่)
-    $('btn-hol-import-public').addEventListener('click', async () => {
-      const year = holidayCalView.year;
-      if (year !== 2026) {
-        const ok = await showConfirmModal(`รายการนี้อ้างอิงวันหยุดราชการปี พ.ศ. 2569 (ค.ศ. 2026) — ต้องการเพิ่มลงปี ${year + 543} โดยยึดวัน/เดือนเดิมหรือไม่? (วันหยุดตามจันทรคติ เช่น มาฆบูชา/อาสาฬหบูชา อาจคลาดเคลื่อนไปจากปีจริง ควรตรวจสอบอีกครั้ง)`);
-        if (!ok) return;
-      }
-      const items = PUBLIC_HOLIDAYS_2026.map(h => ({ date: String(year) + h.date.slice(4), name: h.name }));
-      const news = items.filter(it => !isHoliday(it.date));
-      if (!news.length) { toast('มีวันหยุดราชการครบแล้ว', 'ok'); return; }
-      news.forEach(it => { holidays = holidays.filter(h => h.date !== it.date); holidays.push(it); });
-      holidays.sort((a, b) => a.date.localeCompare(b.date));
-      saveHolidaysLocal(); renderHolidayCalendar(); renderHolidayList();
-      const ok2 = await upsertHolidaysToSupabase(news);
-      toast(ok2 ? `นำเข้าวันหยุดราชการ ${news.length} วันแล้ว` : `เพิ่มในเครื่องแล้ว ${news.length} วัน แต่ sync ขึ้น Supabase ไม่สำเร็จ`, ok2 ? 'ok' : 'ng');
-    });
-    // เพิ่มวันอาทิตย์ทั้งปีที่กำลังดูอยู่ เป็นวันหยุด (วันหยุดประจำสัปดาห์)
-    $('btn-hol-import-sunday').addEventListener('click', async () => {
-      const year = holidayCalView.year;
-      const news = [];
-      const d = new Date(year, 0, 1);
-      while (d.getFullYear() === year) {
-        if (d.getDay() === 0) {
-          const dateStr = localDateStr(d);
-          if (!isHoliday(dateStr)) news.push({ date: dateStr, name: 'วันอาทิตย์' });
-        }
-        d.setDate(d.getDate() + 1);
-      }
-      if (!news.length) { toast('มีวันอาทิตย์ครบทุกวันแล้ว', 'ok'); return; }
-      if (!(await showConfirmModal(`เพิ่มวันอาทิตย์ทั้งหมด ${news.length} วันของปี ${year + 543} เป็นวันหยุดหรือไม่?`))) return;
-      news.forEach(it => holidays.push(it));
-      holidays.sort((a, b) => a.date.localeCompare(b.date));
-      saveHolidaysLocal(); renderHolidayCalendar(); renderHolidayList();
-      const ok2 = await upsertHolidaysToSupabase(news);
-      toast(ok2 ? `เพิ่มวันอาทิตย์ ${news.length} วันแล้ว` : `เพิ่มในเครื่องแล้ว ${news.length} วัน แต่ sync ขึ้น Supabase ไม่สำเร็จ`, ok2 ? 'ok' : 'ng');
-    });
-  }
-
-  /* ══════════════════════════════════════
      LINE ที่ไม่มีการตรวจเช็คในแต่ละวัน (Admin Panel)
      ดึงผ่าน RPC get_unchecked_lines(p_from, p_to) — คำนวณฝั่งเซิร์ฟเวอร์ทั้งหมด
      (ดู add_unchecked_lines_report.sql) ไม่ดาวน์โหลด history เต็มแถว/รูปถ่ายมาไล่เช็คฝั่ง browser
      เกณฑ์: Line ที่ "ไม่ตรวจเลยสักจุด" ในวันนั้น (ไม่นับ JIG ที่มาร์คไม่ได้ผลิตออก)
-     🆕 วันที่ตรงกับ "วันหยุดบริษัท" (ตั้งไว้ในปฏิทินด้านบน) จะถูกกรองออกจากรายงานนี้อัตโนมัติ
   ══════════════════════════════════════ */
   async function renderUncheckedLinesReport() {
     const listEl = $('adm-uncl-list');
@@ -5411,14 +5174,9 @@ ${ngCount > 0 ? `❌ ไม่ผ่าน (NG): ${ngCount}` : ''}
       const { data, error } = await sb.rpc('get_unchecked_lines', { p_from: from, p_to: to });
       if (error) throw error;
 
-      const allRows = data || [];
-      // 🆕 กรองวันที่ตรงกับ "วันหยุดบริษัท" (ตั้งไว้ในปฏิทินด้านบน) ออก — ไม่นับว่าขาดตรวจ
-      const rows = allRows.filter(r => !isHoliday(r.check_date));
-      const excludedByHoliday = allRows.length - rows.length;
-
+      const rows = data || [];
       if (!rows.length) {
         listEl.innerHTML = '<span class="chip-empty">✅ ไม่พบ Line ที่ขาดการตรวจในช่วงที่เลือก</span>';
-        if (summaryEl && excludedByHoliday > 0) summaryEl.textContent = `(ไม่รวม ${excludedByHoliday} รายการที่ตรงกับวันหยุดที่ตั้งไว้)`;
         return;
       }
 
@@ -5427,10 +5185,7 @@ ${ngCount > 0 ? `❌ ไม่ผ่าน (NG): ${ngCount}` : ''}
       rows.forEach(r => { (byDate[r.check_date] = byDate[r.check_date] || []).push(r.line_id); });
       const dates = Object.keys(byDate).sort((a, b) => b.localeCompare(a));
 
-      if (summaryEl) {
-        summaryEl.textContent = `พบ Line ที่ขาดการตรวจรวม ${rows.length} ครั้ง ใน ${dates.length} วัน`
-          + (excludedByHoliday > 0 ? ` (ไม่รวม ${excludedByHoliday} รายการที่ตรงกับวันหยุดที่ตั้งไว้)` : '');
-      }
+      if (summaryEl) summaryEl.textContent = `พบ Line ที่ขาดการตรวจรวม ${rows.length} ครั้ง ใน ${dates.length} วัน`;
 
       // 🆕 (ปรับดีไซน์) โรงงานที่มีหลายแผนก — จัดกลุ่ม Line ตามแผนกในแต่ละวัน แล้วขึ้นชื่อแผนก
       // เป็น "หัวข้อ" ครั้งเดียวต่อกลุ่ม แทนที่จะย้ำชื่อแผนก (Dept) ซ้ำต่อท้ายทุก chip แบบเดิม
