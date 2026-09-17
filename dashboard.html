@@ -796,12 +796,38 @@
       <div class="admin-list admin-list-scroll" id="adm-line-list"></div>
     </div>
 
+    <!-- 🆕 วันหยุดบริษัท (Holiday Calendar) — Admin คลิกวันที่เพื่อตั้ง/ยกเลิกวันหยุด
+         sync ขึ้น Supabase ผ่าน RPC upsert_holidays / delete_holiday (ดู add_holidays.sql)
+         วันที่ตั้งเป็นวันหยุดจะถูกกรองออกจากรายงาน "Line ที่ไม่มีการตรวจเช็ค" ด้านล่างอัตโนมัติ -->
+    <div class="admin-section">
+      <div class="admin-section-title"><svg class="inline-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> วันหยุดบริษัท (Holiday Calendar)</div>
+      <div style="font-size:11px; color:var(--text-muted); margin-bottom:8px; line-height:1.5;">
+        คลิกวันที่ในปฏิทินเพื่อตั้ง/ยกเลิกวันหยุด — วันที่ตั้งเป็นวันหยุดจะ<b>ไม่ถูกนับ</b>ในรายงาน "Line ที่ไม่มีการตรวจเช็คในแต่ละวัน" ด้านล่าง
+      </div>
+      <div class="holiday-cal">
+        <div class="holiday-cal-nav">
+          <button type="button" id="btn-hol-prev" class="holiday-cal-nav-btn" title="เดือนก่อนหน้า">‹</button>
+          <span id="hol-cal-label" class="holiday-cal-label"></span>
+          <button type="button" id="btn-hol-next" class="holiday-cal-nav-btn" title="เดือนถัดไป">›</button>
+        </div>
+        <div class="holiday-cal-daynames">
+          <span>อา</span><span>จ</span><span>อ</span><span>พ</span><span>พฤ</span><span>ศ</span><span>ส</span>
+        </div>
+        <div id="hol-cal-grid" class="holiday-cal-grid"></div>
+      </div>
+      <div class="admin-input-row" style="margin-top:10px;">
+        <button type="button" class="btn-sec" id="btn-hol-import-public" style="flex:1;">+ วันหยุดราชการ 13 วัน (2569)</button>
+        <button type="button" class="btn-sec" id="btn-hol-import-sunday" style="flex:1;">+ วันอาทิตย์ทั้งปีนี้</button>
+      </div>
+      <div id="hol-list" class="admin-list admin-list-scroll" style="margin-top:8px; max-height:180px;"></div>
+    </div>
+
     <!-- 🆕 Line ที่ไม่มีการตรวจเช็คในแต่ละวัน — ดึงผ่าน RPC get_unchecked_lines (คำนวณฝั่งเซิร์ฟเวอร์
          ไม่ดาวน์โหลดรูปถ่าย/ข้อมูลเต็มแถวจาก history เหมือนวิธีเดิม, ดู add_unchecked_lines_report.sql) -->
     <div class="admin-section">
       <div class="admin-section-title"><svg class="inline-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> Line ที่ไม่มีการตรวจเช็คในแต่ละวัน</div>
       <div style="font-size:11px; color:var(--text-muted); margin-bottom:8px; line-height:1.5;">
-        แสดง Line ที่ <b>ไม่มีการตรวจเลยสักจุด</b> ในวันนั้นๆ (Line ที่มาร์ค "ไม่ได้ผลิต" ครบทุก JIG แล้ว จะไม่ถูกนับว่าขาดตรวจ) — เลือกช่วงวันที่แล้วกด "ค้นหา"
+        แสดง Line ที่ <b>ไม่มีการตรวจเลยสักจุด</b> ในวันนั้นๆ (Line ที่มาร์ค "ไม่ได้ผลิต" ครบทุก JIG แล้ว หรือวันที่ตั้งเป็น "วันหยุดบริษัท" ด้านบน จะไม่ถูกนับว่าขาดตรวจ) — เลือกช่วงวันที่แล้วกด "ค้นหา"
       </div>
       <div class="admin-input-row">
         <input type="date" id="adm-uncl-from" title="จากวันที่">

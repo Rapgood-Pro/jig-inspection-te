@@ -1160,25 +1160,58 @@ h1, h2, h3, h4, label, button, input, select, textarea, p, span, div {
   text-transform: uppercase; letter-spacing: 0.06em;
   margin-bottom: 5px;
 }
-.adm-uncl-item .uncl-lines { display: flex; flex-direction: column; gap: 5px; }
-.uncl-line-row {
-  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+.adm-uncl-item .uncl-lines { display: flex; flex-wrap: wrap; gap: 6px; }
+.uncl-line-chip {
+  font-size: 11px; font-weight: 500; color: var(--text-main);
   background: var(--bg-card-solid); border: 1px solid var(--border-input);
-  padding: 5px 10px; border-radius: 7px;
+  padding: 3px 9px; border-radius: 7px; line-height: 1.4;
 }
-.uncl-line-name { font-size: 11px; font-weight: 500; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* ส่วนขยายในวงเล็บของชื่อ Line (เช่น "(Common RG01,RG04,...)") — ให้เป็นข้อความรอง ไม่แข่งกับชื่อหลัก */
-.uncl-line-name .uncl-chip-sub { color: var(--text-muted); font-weight: 400; margin-left: 4px; }
-.uncl-line-stats { display: flex; gap: 5px; flex-shrink: 0; }
-.uncl-jig-badge {
-  font-size: 10px; font-weight: 600; color: var(--fixed);
-  background: var(--fixed-bg); border: 1px solid var(--fixed-border);
-  padding: 1px 7px; border-radius: 999px; white-space: nowrap;
+.uncl-line-chip .uncl-chip-sub { color: var(--text-muted); font-weight: 400; margin-left: 4px; }
+
+/* 🆕 วันหยุดบริษัท (Holiday Calendar, Admin Panel) */
+.holiday-cal { user-select: none; }
+.holiday-cal-nav {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 8px;
 }
-.uncl-streak-badge {
-  font-size: 10px; font-weight: 700; color: var(--ng);
-  background: var(--ng-bg); border: 1px solid var(--ng-border);
-  padding: 1px 7px; border-radius: 999px; white-space: nowrap;
+.holiday-cal-nav-btn {
+  width: 28px; height: 28px; border-radius: 7px;
+  border: 1px solid var(--border-input); background: var(--bg-input);
+  color: var(--text-main); font-size: 16px; cursor: pointer; line-height: 1;
+  font-family: var(--font-thai);
+}
+.holiday-cal-nav-btn:hover { border-color: var(--accent); color: var(--accent); }
+.holiday-cal-label { font-size: 12.5px; font-weight: 700; color: var(--text-heading); }
+.holiday-cal-daynames, .holiday-cal-grid {
+  display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px;
+}
+.holiday-cal-daynames span {
+  text-align: center; font-size: 10px; color: var(--text-muted); font-weight: 600; padding-bottom: 4px;
+}
+.holiday-cal-cell {
+  aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
+  font-size: 11.5px; border-radius: 7px; cursor: pointer;
+  background: var(--bg-input); border: 1px solid var(--border-input); color: var(--text-main);
+  transition: background 0.15s, border-color 0.15s;
+}
+.holiday-cal-cell:hover { border-color: var(--accent); }
+.holiday-cal-cell.is-empty { visibility: hidden; cursor: default; }
+.holiday-cal-cell.is-sunday { color: var(--ng); }
+.holiday-cal-cell.is-today { border-color: var(--accent); border-width: 2px; font-weight: 700; }
+.holiday-cal-cell.is-holiday {
+  background: var(--ng-bg); border-color: var(--ng-border); color: var(--ng); font-weight: 700;
+}
+.holiday-cal-cell.is-holiday:hover { background: var(--ng-border); }
+.hol-list-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 6px 10px; border-radius: 7px;
+  background: var(--bg-input); border: 1px solid var(--border-input); font-size: 12px;
+}
+.hol-list-item .hol-date { font-weight: 700; color: var(--text-main); white-space: nowrap; }
+.hol-list-item .hol-name {
+  color: var(--text-muted); flex: 1; margin: 0 8px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
 .admin-list { display: flex; flex-direction: column; gap: 4px; }
