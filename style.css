@@ -1160,14 +1160,26 @@ h1, h2, h3, h4, label, button, input, select, textarea, p, span, div {
   text-transform: uppercase; letter-spacing: 0.06em;
   margin-bottom: 5px;
 }
-.adm-uncl-item .uncl-lines { display: flex; flex-wrap: wrap; gap: 6px; }
-.uncl-line-chip {
-  font-size: 11px; font-weight: 500; color: var(--text-main);
+.adm-uncl-item .uncl-lines { display: flex; flex-direction: column; gap: 5px; }
+.uncl-line-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
   background: var(--bg-card-solid); border: 1px solid var(--border-input);
-  padding: 3px 9px; border-radius: 7px; line-height: 1.4;
+  padding: 5px 10px; border-radius: 7px;
 }
+.uncl-line-name { font-size: 11px; font-weight: 500; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* ส่วนขยายในวงเล็บของชื่อ Line (เช่น "(Common RG01,RG04,...)") — ให้เป็นข้อความรอง ไม่แข่งกับชื่อหลัก */
-.uncl-line-chip .uncl-chip-sub { color: var(--text-muted); font-weight: 400; margin-left: 4px; }
+.uncl-line-name .uncl-chip-sub { color: var(--text-muted); font-weight: 400; margin-left: 4px; }
+.uncl-line-stats { display: flex; gap: 5px; flex-shrink: 0; }
+.uncl-jig-badge {
+  font-size: 10px; font-weight: 600; color: var(--fixed);
+  background: var(--fixed-bg); border: 1px solid var(--fixed-border);
+  padding: 1px 7px; border-radius: 999px; white-space: nowrap;
+}
+.uncl-streak-badge {
+  font-size: 10px; font-weight: 700; color: var(--ng);
+  background: var(--ng-bg); border: 1px solid var(--ng-border);
+  padding: 1px 7px; border-radius: 999px; white-space: nowrap;
+}
 
 .admin-list { display: flex; flex-direction: column; gap: 4px; }
 .admin-list-scroll {

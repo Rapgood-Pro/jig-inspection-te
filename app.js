@@ -5171,23 +5171,55 @@ ${ngCount > 0 ? `❌ ไม่ผ่าน (NG): ${ngCount}` : ''}
     if (summaryEl) summaryEl.textContent = '';
 
     try {
-      const { data, error } = await sb.rpc('get_unchecked_lines', { p_from: from, p_to: to });
-      if (error) throw error;
+      // 🆕 ดึง get_unchecked_lines (ระดับ Line/วัน คำนวณฝั่งเซิร์ฟเวอร์ตามเดิม) พร้อมกับ jig_skips
+      // ของช่วงวันเดียวกัน (ตารางนี้เล็ก ไม่มีรูป/base64 เหมือน history จึงดึงตรงฝั่ง browser ได้
+      // โดยไม่กระทบ Egress) — เอามาคำนวณ "ขาดกี่ JIG จากทั้งหมดกี่ JIG" ต่อ Line/วัน
+      const [uncheckedRes, skipsRes] = await Promise.all([
+        sb.rpc('get_unchecked_lines', { p_from: from, p_to: to }),
+        sb.from('jig_skips').select('jig_id, line_id, skip_date').gte('skip_date', from).lte('skip_date', to)
+          .then(r => r, e => ({ data: [], error: null })), // ตาราง jig_skips อาจยังไม่มี (ยังไม่รัน SQL migration) — ไม่ให้พังทั้งรายงาน
+      ]);
+      if (uncheckedRes.error) throw uncheckedRes.error;
 
-      const rows = data || [];
+      const rows = uncheckedRes.data || [];
       if (!rows.length) {
         listEl.innerHTML = '<span class="chip-empty">✅ ไม่พบ Line ที่ขาดการตรวจในช่วงที่เลือก</span>';
         return;
       }
+
+      // นับจำนวน JIG ที่ถูกมาร์ค "ไม่ได้ผลิต" ต่อ Line/วัน — ไว้คำนวณ "ขาดตรวจกี่ JIG"
+      const skipCountByLineDate = {};
+      (skipsRes.data || []).forEach(s => {
+        const key = `${s.line_id}|${s.skip_date}`;
+        skipCountByLineDate[key] = (skipCountByLineDate[key] || 0) + 1;
+      });
+      const jigTotalByLine = {};
+      catalog.jigs.forEach(j => { jigTotalByLine[j.lineId] = (jigTotalByLine[j.lineId] || 0) + 1; });
 
       // จัดกลุ่มตามวันที่ (ใหม่สุดก่อน) — แต่ละวันแสดงว่า Line ไหนขาดตรวจบ้าง
       const byDate = {};
       rows.forEach(r => { (byDate[r.check_date] = byDate[r.check_date] || []).push(r.line_id); });
       const dates = Object.keys(byDate).sort((a, b) => b.localeCompare(a));
 
+      // 🆕 เซ็ตของ "line_id|วันที่" ที่ขาดตรวจทั้งหมด — ใช้คำนวณ "ขาดติดต่อกันกี่วัน" โดยไล่ย้อนหลัง
+      // จากวันนั้นๆ ทีละวัน (คำนวณฝั่ง browser จากผลลัพธ์ชุดเดียวกันนี้เลย ไม่ต้องยิง query เพิ่ม)
+      const missedSet = new Set(rows.map(r => `${r.line_id}|${r.check_date}`));
+      const addDays = (dateStr, delta) => {
+        const dt = new Date(dateStr + 'T00:00:00');
+        dt.setDate(dt.getDate() + delta);
+        return localDateStr(dt);
+      };
+      const streakInfo = (lineId, dateStr) => {
+        let n = 1;
+        let cur = dateStr;
+        while (missedSet.has(`${lineId}|${addDays(cur, -1)}`)) { cur = addDays(cur, -1); n++; if (n > 60) break; }
+        const hitsBoundary = cur <= from; // ขาดต่อเนื่องไปจนถึงขอบเขตวันเริ่มต้นที่ค้นหา — อาจขาดมากกว่านี้จริง
+        return { n, hitsBoundary };
+      };
+
       if (summaryEl) summaryEl.textContent = `พบ Line ที่ขาดการตรวจรวม ${rows.length} ครั้ง ใน ${dates.length} วัน`;
 
-      // 🆕 (ปรับดีไซน์) โรงงานที่มีหลายแผนก — จัดกลุ่ม Line ตามแผนกในแต่ละวัน แล้วขึ้นชื่อแผนก
+      // (ปรับดีไซน์) โรงงานที่มีหลายแผนก — จัดกลุ่ม Line ตามแผนกในแต่ละวัน แล้วขึ้นชื่อแผนก
       // เป็น "หัวข้อ" ครั้งเดียวต่อกลุ่ม แทนที่จะย้ำชื่อแผนก (Dept) ซ้ำต่อท้ายทุก chip แบบเดิม
       // (ถ้าทั้งระบบมีแผนกเดียว ก็ไม่ต้องโชว์หัวข้อแผนกเลย เพราะไม่ได้ช่วยแยกอะไร มีแต่จะรกขึ้น)
       const showDeptLabel = catalog.depts.length > 1;
@@ -5204,23 +5236,38 @@ ${ngCount > 0 ? `❌ ไม่ผ่าน (NG): ${ngCount}` : ''}
         const dateLabel = dt.toLocaleDateString('th-TH', { day: '2-digit', month: 'short', year: 'numeric', weekday: 'short' });
 
         // จัดกลุ่ม Line ของวันนี้ตามแผนก
-        const deptGroups = {};   // deptId -> { name, lines: [label,...] }
+        const deptGroups = {};   // deptId -> { name, lines: [{id,label},...] }
         const deptOrder = [];
         byDate[d].forEach(lid => {
           const line = catalog.lines.find(l => l.id === lid);
           const dept = line ? catalog.depts.find(dp => dp.id === line.deptId) : null;
           const key = dept ? dept.id : '__unknown';
           if (!deptGroups[key]) { deptGroups[key] = { name: dept ? dept.name : 'ไม่ทราบแผนก', lines: [] }; deptOrder.push(key); }
-          deptGroups[key].lines.push(line ? (line.name || line.id) : lid);
+          deptGroups[key].lines.push({ id: lid, label: line ? (line.name || line.id) : lid });
         });
         deptOrder.sort((a, b) => deptGroups[a].name.localeCompare(deptGroups[b].name, 'th'));
 
         const groupsHtml = deptOrder.map(key => {
           const g = deptGroups[key];
-          const chips = g.lines.map(label => `<span class="uncl-line-chip">${splitLineLabel(label)}</span>`).join('');
+          const rowsHtml = g.lines.map(({ id: lid, label }) => {
+            const total = jigTotalByLine[lid] || 0;
+            const skipped = skipCountByLineDate[`${lid}|${d}`] || 0;
+            const missing = Math.max(total - skipped, 0);
+            const jigBadge = total
+              ? `<span class="uncl-jig-badge" title="ขาดตรวจ ${missing} จากทั้งหมด ${total} JIG ในไลน์นี้${skipped ? ` (มาร์คไม่ได้ผลิต ${skipped} JIG)` : ''}">⚠ ${missing}/${total} JIG</span>`
+              : '';
+            const st = streakInfo(lid, d);
+            const streakBadge = st.n >= 2
+              ? `<span class="uncl-streak-badge" title="ขาดตรวจต่อเนื่อง ${st.n} วัน นับถึงวันนี้${st.hitsBoundary ? ' (อาจขาดมากกว่านี้ — ลองขยายช่วงวันที่ค้นหาย้อนหลังเพิ่ม)' : ''}">🔥 ${st.n}${st.hitsBoundary ? '+' : ''} วันติด</span>`
+              : '';
+            return `<div class="uncl-line-row">
+              <span class="uncl-line-name">${splitLineLabel(label)}</span>
+              <span class="uncl-line-stats">${jigBadge}${streakBadge}</span>
+            </div>`;
+          }).join('');
           return `<div class="uncl-dept-group">
             ${showDeptLabel ? `<div class="uncl-dept-label">${escHtml(g.name)}</div>` : ''}
-            <div class="uncl-lines">${chips}</div>
+            <div class="uncl-lines">${rowsHtml}</div>
           </div>`;
         }).join('');
 
