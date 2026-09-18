@@ -5224,6 +5224,7 @@ ${ngCount > 0 ? `❌ ไม่ผ่าน (NG): ${ngCount}` : ''}
   function renderHolidayCalendar() {
     const grid = $('holiday-calendar-grid');
     const label = $('holcal-month-label');
+    const countEl = $('holcal-month-count');
     if (!grid || !label) return;
     const y = holCalMonth.getFullYear(), m = holCalMonth.getMonth();
     label.textContent = holCalMonth.toLocaleDateString('th-TH', { month: 'long', year: 'numeric' });
@@ -5232,6 +5233,11 @@ ${ngCount > 0 ? `❌ ไม่ผ่าน (NG): ${ngCount}` : ''}
     const daysInMonth = new Date(y, m + 1, 0).getDate();
     const holSet = new Set(loadHolidays().map(h => h.date));
     const t = todayStr();
+    const monthPrefix = `${y}-${String(m + 1).padStart(2, '0')}-`;
+    if (countEl) {
+      const n = [...holSet].filter(d => d.startsWith(monthPrefix)).length;
+      countEl.textContent = n ? `${n} วันหยุดในเดือนนี้` : 'ไม่มีวันหยุดในเดือนนี้';
+    }
 
     const dowLabels = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
     let html = dowLabels.map(d => `<div class="holiday-cal-dow">${d}</div>`).join('');
@@ -5266,10 +5272,10 @@ ${ngCount > 0 ? `❌ ไม่ผ่าน (NG): ${ngCount}` : ''}
       const dt = new Date(h.date + 'T00:00:00');
       const dateLabel = dt.toLocaleDateString('th-TH', { day: '2-digit', month: 'short', year: 'numeric', weekday: 'short' });
       return `
-        <div class="adm-uncl-item" style="display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px 12px;">
-          <div style="min-width:0;">
-            <div style="font-size:12px; font-weight:700; color:var(--text-main);">${escHtml(dateLabel)}</div>
-            <div style="font-size:11px; color:var(--text-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escHtml(h.name)}</div>
+        <div class="holiday-list-item">
+          <div class="holiday-list-text">
+            <div class="holiday-list-date">${escHtml(dateLabel)}</div>
+            <div class="holiday-list-name">${escHtml(h.name)}</div>
           </div>
           <button type="button" class="btn-icon-sm btn-remove-holiday" data-date="${h.date}" title="ลบวันหยุดนี้">✕</button>
         </div>`;
