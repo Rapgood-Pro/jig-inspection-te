@@ -46,9 +46,9 @@
   --fixed-border:     hsla(45, 80%, 50%, 0.4);
   --pending:          hsl(220, 10%, 45%);
   --pending-bg:       hsla(220, 10%, 45%, 0.1);
-  --holiday:          hsl(262, 60%, 62%);
-  --holiday-bg:       hsla(262, 60%, 62%, 0.14);
-  --holiday-border:   hsla(262, 60%, 62%, 0.45);
+  --holiday:          hsl(38, 72%, 58%);
+  --holiday-bg:       hsla(38, 72%, 58%, 0.14);
+  --holiday-border:   hsla(38, 72%, 58%, 0.45);
   --chip-bg:          hsla(220, 20%, 20%, 0.8);
   --chip-hover:       hsla(210, 50%, 30%, 0.6);
   --chip-active-bg:   hsla(210, 80%, 55%, 0.2);
@@ -92,9 +92,9 @@
   --fixed-border:     hsla(45, 75%, 42%, 0.3);
   --pending:          hsl(220, 10%, 60%);
   --pending-bg:       hsla(220, 10%, 60%, 0.08);
-  --holiday:          hsl(262, 55%, 52%);
-  --holiday-bg:       hsla(262, 55%, 52%, 0.08);
-  --holiday-border:   hsla(262, 55%, 52%, 0.3);
+  --holiday:          hsl(38, 65%, 42%);
+  --holiday-bg:       hsla(38, 65%, 42%, 0.1);
+  --holiday-border:   hsla(38, 65%, 42%, 0.3);
   --chip-bg:          hsl(220, 15%, 94%);
   --chip-hover:       hsl(210, 30%, 88%);
   --chip-active-bg:   hsla(210, 75%, 48%, 0.1);
